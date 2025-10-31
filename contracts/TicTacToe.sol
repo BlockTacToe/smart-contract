@@ -2,13 +2,15 @@
 pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title TicTacToe
  * @notice A decentralized Tic Tac Toe game with ETH betting and timeout/forfeit mechanism
  * @dev Implements anti-griefing timeout protection with 24-hour move limit
  */
-contract TicTacToe is ReentrancyGuard {
+contract TicTacToe is ReentrancyGuard, Pausable, Ownable {
     // Constants
     uint256 public constant MOVE_TIMEOUT = 24 hours;
 
@@ -23,6 +25,11 @@ contract TicTacToe is ReentrancyGuard {
     error CellOccupied();
     error TimeoutNotReached();
     error UnauthorizedForfeit();
+    error CannotPlaySelf();
+    error PayoutTransferFailed();
+    error RefundTransferFailed();
+    error GameNotEnded();
+    error InvalidPlayerAddress();
 
     // Enums
     enum GameStatus {
@@ -95,6 +102,19 @@ contract TicTacToe is ReentrancyGuard {
         }
     }
 
+    modifier onlyPlayer(uint256 gameId) {
+        Game storage game = games[gameId];
+        if (
+            msg.sender != game.playerOne && msg.sender != game.playerTwo
+        ) revert UnauthorizedForfeit();
+        _;
+    }
+
+    /**
+     * @notice Constructor to set the contract owner
+     */
+    constructor() Ownable(msg.sender) {}
+
     /**
      * @notice Create a new game with a bet and make the first move
      * @param betAmount The amount of ETH to bet (in wei)
@@ -103,7 +123,7 @@ contract TicTacToe is ReentrancyGuard {
     function createGame(
         uint256 betAmount,
         uint8 moveIndex
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         if (betAmount == 0) revert InvalidBetAmount();
         if (msg.value != betAmount) revert BetMismatch();
         if (moveIndex > 8) revert InvalidMove();
@@ -132,10 +152,11 @@ contract TicTacToe is ReentrancyGuard {
     function joinGame(
         uint256 gameId,
         uint8 moveIndex
-    ) external payable nonReentrant validGame(gameId) gameActive(gameId) {
+    ) external payable nonReentrant validGame(gameId) gameActive(gameId) whenNotPaused {
         Game storage game = games[gameId];
 
         if (game.playerTwo != address(0)) revert GameAlreadyStarted();
+        if (msg.sender == game.playerOne) revert CannotPlaySelf();
         if (msg.value != game.betAmount) revert BetMismatch();
         if (moveIndex > 8) revert InvalidMove();
         if (game.board[moveIndex] != 0) revert CellOccupied();
@@ -166,6 +187,7 @@ contract TicTacToe is ReentrancyGuard {
         validGame(gameId)
         gameActive(gameId)
         checkTimeout(gameId)
+        whenNotPaused
     {
         Game storage game = games[gameId];
 
@@ -225,14 +247,14 @@ contract TicTacToe is ReentrancyGuard {
         game.status = GameStatus.Forfeited;
         game.winner = winner;
 
-        // Calculate payout
+        // Calculate payout (Solidity 0.8+ has built-in overflow protection)
         uint256 payout = game.betAmount * 2;
 
         emit GameForfeited(gameId, winner);
 
         // Transfer funds to winner
         (bool success, ) = winner.call{value: payout}("");
-        require(success, "Transfer failed");
+        if (!success) revert PayoutTransferFailed();
     }
 
     /**
@@ -278,6 +300,22 @@ contract TicTacToe is ReentrancyGuard {
     }
 
     /**
+     * @notice Pause the contract (only owner)
+     * @dev Prevents new games from being created and moves from being played
+     */
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /**
+     * @notice Unpause the contract (only owner)
+     * @dev Allows games to resume normally
+     */
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    /**
      * @notice Internal function to check for a winner
      * @param gameId The ID of the game
      */
@@ -312,9 +350,9 @@ contract TicTacToe is ReentrancyGuard {
 
                 emit GameWon(gameId, winner, payout);
 
-                // Transfer funds to winner
+                // Transfer funds to winner (Solidity 0.8+ has built-in overflow protection)
                 (bool success, ) = winner.call{value: payout}("");
-                require(success, "Transfer failed");
+                if (!success) revert PayoutTransferFailed();
 
                 return;
             }
@@ -335,7 +373,8 @@ contract TicTacToe is ReentrancyGuard {
             // Return bets to both players in case of draw
             (bool success1, ) = game.playerOne.call{value: game.betAmount}("");
             (bool success2, ) = game.playerTwo.call{value: game.betAmount}("");
-            require(success1 && success2, "Transfer failed");
+            if (!success1) revert RefundTransferFailed();
+            if (!success2) revert RefundTransferFailed();
         }
     }
 }
