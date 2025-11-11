@@ -1,0 +1,42 @@
+{
+  "name": "blocxtactoe-contracts",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "hardhat test",
+    "compile": "hardhat compile",
+    "clean": "hardhat clean",
+    "deploy": "hardhat run scripts/deploy.ts",
+    "verify": "hardhat run scripts/verify.ts",
+    "deploy:sepolia": "hardhat run scripts/deploy.ts --network sepolia",
+    "verify:sepolia": "hardhat run scripts/verify.ts --network sepolia",
+    "deploy:baseSepolia": "hardhat run scripts/deploy.ts --network baseSepolia",
+    "verify:baseSepolia": "hardhat run scripts/verify.ts --network baseSepolia",
+    "deploy:base": "hardhat run scripts/deploy.ts --network base",
+    "verify:base": "hardhat run scripts/verify.ts --network base",
+    "deploy:mainnet": "hardhat run scripts/deploy.ts --network mainnet",
+    "verify:mainnet": "hardhat run scripts/verify.ts --network mainnet"
+  },
+  "keywords": [
+    "blocxtactoe",
+    "farcaster",
+    "social",
+    "web3"
+  ],
+  "author": "BlOcXTacToe Team",
+  "license": "MIT",
+  "description": "Smart contracts for BlOcXTacToe - A decentralized Tic Tac Toe game with betting",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@types/chai": "^4.3.20",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.3.0",
+    "hardhat": "^2.24.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.4.0",
+    "dotenv": "^17.2.1"
+  }
+}

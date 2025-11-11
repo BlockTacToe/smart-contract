@@ -1,0 +1,13 @@
+{
+  "contractName": "BlOcXTacToe",
+  "address": "0x49fB1E12664C0519bB9611Dc306d4988548acB0B",
+  "deployer": "0x0eE1F2b663547dAa487F57C517C7563AdCf86da0",
+  "network": "baseSepolia",
+  "chainId": "84532",
+  "transactionHash": "0x4182c38105a88b392e99edfd0a4a089a1479bf389be496ca4649bfdd21da952d",
+  "timestamp": "2025-11-11T00:34:36.148Z",
+  "blockNumber": 33526494,
+  "moveTimeout": "24 hours (configurable)",
+  "platformFeePercent": "0% (configurable)",
+  "constructorArgs": []
+}
