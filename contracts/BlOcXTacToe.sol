@@ -16,12 +16,14 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     uint256 public moveTimeout; // Dynamic timeout duration
     uint256 public platformFeePercent; // Platform fee percentage (basis points, e.g., 100 = 1%)
     address public platformFeeRecipient; // Address to receive platform fees
+    uint256 public kFactor; // Rating change factor (points per win/loss)
     
     // Admin Management
     mapping(address => bool) public admins;
     
     // Supported Tokens (address(0) = native ETH)
     mapping(address => bool) public supportedTokens;
+    mapping(address => string) public tokenNames; // Token address => name/symbol
     address[] public supportedTokensList; // List of all supported token addresses
     
     // Player Registration & Stats
@@ -37,7 +39,6 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     
     mapping(address => Player) public players;
     mapping(string => address) public usernameToAddress;
-    address[] public registeredPlayers;
     
     // Leaderboard (top players by rating)
     struct LeaderboardEntry {
@@ -50,19 +51,6 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     LeaderboardEntry[] public leaderboard;
     uint256 public constant LEADERBOARD_SIZE = 100;
     
-    // Latest Wins Feed
-    struct WinRecord {
-        uint256 gameId;
-        address winner;
-        string winnerUsername;
-        address opponent;
-        string opponentUsername;
-        uint256 payout;
-        uint256 timestamp;
-    }
-    
-    WinRecord[] public latestWins;
-    uint256 public constant MAX_WIN_RECORDS = 50;
     
     // Challenge System
     struct Challenge {
@@ -72,6 +60,7 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
         string challengedUsername;
         uint256 betAmount;
         address tokenAddress; // address(0) for ETH
+        uint8 boardSize; // 3, 5, or 7
         uint256 timestamp;
         bool accepted;
         uint256 gameId; // Set when challenge is accepted
@@ -87,12 +76,15 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
         address playerTwo;
         uint256 betAmount;
         address tokenAddress; // address(0) for ETH
-        uint8[9] board; // Packed: 0=empty, 1=X, 2=O
+        uint8 boardSize; // 3, 5, or 7 (default 3 for regular games)
         bool isPlayerOneTurn;
         address winner;
         uint64 lastMoveTimestamp; // Packed timestamp
         GameStatus status;
     }
+    
+    // Board storage: gameId => cellIndex => value (0=empty, 1=X, 2=O)
+    mapping(uint256 => mapping(uint256 => uint8)) public gameBoards;
     
     enum GameStatus {
         Active,
@@ -103,32 +95,38 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     mapping(uint256 => Game) public games;
     uint256 private gameIdCounter;
     
+    // Claimable Rewards (gameId => amount)
+    mapping(uint256 => uint256) public claimableRewards;
+    mapping(uint256 => bool) public rewardClaimed;
+    
     // Custom Errors
-    error InvalidGameId();
-    error GameNotActive();
+    error InvalidId();
+    error NotActive();
     error InvalidMove();
-    error NotYourTurn();
-    error InvalidBetAmount();
+    error NotTurn();
+    error InvalidBet();
     error BetMismatch();
-    error GameAlreadyStarted();
-    error CellOccupied();
-    error TimeoutNotReached();
-    error UnauthorizedForfeit();
-    error CannotPlaySelf();
-    error PayoutTransferFailed();
-    error RefundTransferFailed();
-    error InvalidPlayerAddress();
+    error Started();
+    error Occupied();
+    error Timeout();
+    error Unauthorized();
+    error SelfPlay();
+    error TransferFailed();
+    error InvalidAddr();
     error UsernameTaken();
-    error UsernameInvalid();
-    error NotRegistered();
+    error InvalidUser();
+    error NotReg();
     error NotAdmin();
     error InvalidTimeout();
-    error InvalidFeePercent();
-    error TokenNotSupported();
-    error ChallengeNotFound();
-    error ChallengeAlreadyAccepted();
-    error CannotChallengeSelf();
-    error InvalidChallenge();
+    error InvalidFee();
+    error InvalidK();
+    error TokenNotSup();
+    error Accepted();
+    error SelfChallenge();
+    error NoReward();
+    error Claimed();
+    error NotWinner();
+    error InvalidSize();
     
     // Events
     event GameCreated(uint256 indexed gameId, address indexed playerOne, uint256 betAmount, uint8 moveIndex, address tokenAddress);
@@ -141,19 +139,20 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     event AdminRemoved(address indexed admin);
     event TimeoutUpdated(uint256 newTimeout);
     event PlatformFeeUpdated(uint256 newFeePercent);
+    event KFactorUpdated(uint256 newKFactor);
     event TokenSupported(address indexed token, bool supported);
     event ChallengeCreated(uint256 indexed challengeId, address indexed challenger, address indexed challenged, uint256 betAmount);
     event ChallengeAccepted(uint256 indexed challengeId, uint256 indexed gameId);
-    event LatestWinRecorded(uint256 indexed gameId, address indexed winner, string winnerUsername, address indexed opponent, string opponentUsername);
+    event RewardClaimed(uint256 indexed gameId, address indexed winner, uint256 amount);
     
     // Modifiers
     modifier validGame(uint256 gameId) {
-        if (gameId >= gameIdCounter) revert InvalidGameId();
+        if (gameId >= gameIdCounter) revert InvalidId();
         _;
     }
     
     modifier gameActive(uint256 gameId) {
-        if (games[gameId].status != GameStatus.Active) revert GameNotActive();
+        if (games[gameId].status != GameStatus.Active) revert NotActive();
         _;
     }
     
@@ -163,7 +162,7 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     }
     
     modifier onlyRegistered() {
-        if (!players[msg.sender].registered) revert NotRegistered();
+        if (!players[msg.sender].registered) revert NotReg();
         _;
     }
     
@@ -171,8 +170,10 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
         moveTimeout = 24 hours;
         platformFeePercent = 0; // No fee by default
         platformFeeRecipient = msg.sender;
+        kFactor = 100; // Default: 100 points per win/loss
         admins[msg.sender] = true;
         supportedTokens[address(0)] = true; // Native ETH supported by default
+        tokenNames[address(0)] = "ETH"; // Set default name for ETH
         supportedTokensList.push(address(0)); // Add ETH to list
     }
     
@@ -195,41 +196,58 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     }
     
     function setPlatformFee(uint256 newFeePercent) external onlyAdmin {
-        if (newFeePercent > 1000) revert InvalidFeePercent(); // Max 10%
+        if (newFeePercent > 1000) revert InvalidFee();
         platformFeePercent = newFeePercent;
         emit PlatformFeeUpdated(newFeePercent);
     }
     
     function setPlatformFeeRecipient(address recipient) external onlyAdmin {
-        if (recipient == address(0)) revert InvalidPlayerAddress();
+        if (recipient == address(0)) revert InvalidAddr();
         platformFeeRecipient = recipient;
     }
     
-    function setSupportedToken(address token, bool supported) external onlyAdmin {
+    function setKFactor(uint256 newKFactor) external onlyAdmin {
+        if (newKFactor == 0 || newKFactor > 1000) revert InvalidK();
+        kFactor = newKFactor;
+        emit KFactorUpdated(newKFactor);
+    }
+    
+    function setSupportedToken(address token, bool supported, string calldata tokenName) external onlyAdmin {
         bool wasSupported = supportedTokens[token];
         supportedTokens[token] = supported;
+        
+        // Store token name when adding
+        if (supported) {
+            if (bytes(tokenName).length > 0) {
+                tokenNames[token] = tokenName;
+            }
+        }
         
         // Maintain list of supported tokens
         if (supported && !wasSupported) {
             // Add to list if not already there
+            uint256 len = supportedTokensList.length;
             bool exists = false;
-            for (uint256 i = 0; i < supportedTokensList.length; i++) {
+            for (uint256 i = 0; i < len; ) {
                 if (supportedTokensList[i] == token) {
                     exists = true;
                     break;
                 }
+                unchecked { ++i; }
             }
             if (!exists) {
                 supportedTokensList.push(token);
             }
         } else if (!supported && wasSupported) {
             // Remove from list
-            for (uint256 i = 0; i < supportedTokensList.length; i++) {
+            uint256 len = supportedTokensList.length;
+            for (uint256 i = 0; i < len; ) {
                 if (supportedTokensList[i] == token) {
-                    supportedTokensList[i] = supportedTokensList[supportedTokensList.length - 1];
+                    supportedTokensList[i] = supportedTokensList[len - 1];
                     supportedTokensList.pop();
                     break;
                 }
+                unchecked { ++i; }
             }
         }
         
@@ -239,9 +257,9 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     // ============ PLAYER REGISTRATION ============
     
     function registerPlayer(string calldata username) external {
-        if (bytes(username).length == 0 || bytes(username).length > 32) revert UsernameInvalid();
+        if (bytes(username).length == 0 || bytes(username).length > 32) revert InvalidUser();
         if (usernameToAddress[username] != address(0)) revert UsernameTaken();
-        if (players[msg.sender].registered) revert UsernameInvalid(); // Already registered
+        if (players[msg.sender].registered) revert InvalidUser();
         
         players[msg.sender] = Player({
             username: username,
@@ -249,13 +267,11 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
             losses: 0,
             draws: 0,
             totalGames: 0,
-            rating: 1000, // Starting rating
+            rating: 100, // Starting rating
             registered: true
         });
         
         usernameToAddress[username] = msg.sender;
-        registeredPlayers.push(msg.sender);
-        
         emit PlayerRegistered(msg.sender, username);
     }
     
@@ -273,17 +289,21 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     function createGame(
         uint256 betAmount,
         uint8 moveIndex,
-        address tokenAddress
+        address tokenAddress,
+        uint8 boardSize
     ) external payable nonReentrant whenNotPaused onlyRegistered {
-        if (betAmount == 0) revert InvalidBetAmount();
-        if (moveIndex > 8) revert InvalidMove();
-        if (!supportedTokens[tokenAddress]) revert TokenNotSupported();
+        if (betAmount == 0) revert InvalidBet();
+        if (boardSize != 3 && boardSize != 5 && boardSize != 7) revert InvalidSize();
+        if (!supportedTokens[tokenAddress]) revert TokenNotSup();
+        
+        uint256 maxCells = uint256(boardSize) * uint256(boardSize);
+        if (moveIndex >= maxCells) revert InvalidMove();
         
         // Handle payment
         if (tokenAddress == address(0)) {
             if (msg.value != betAmount) revert BetMismatch();
         } else {
-            if (msg.value > 0) revert BetMismatch();
+            if (msg.value != 0) revert BetMismatch();
             IERC20(tokenAddress).transferFrom(msg.sender, address(this), betAmount);
         }
         
@@ -293,10 +313,11 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
         game.playerOne = msg.sender;
         game.betAmount = betAmount;
         game.tokenAddress = tokenAddress;
+        game.boardSize = boardSize;
         game.isPlayerOneTurn = false;
         game.status = GameStatus.Active;
         game.lastMoveTimestamp = uint64(block.timestamp);
-        game.board[moveIndex] = 1;
+        gameBoards[gameId][moveIndex] = 1;
         
         emit GameCreated(gameId, msg.sender, betAmount, moveIndex, tokenAddress);
         emit MovePlayed(gameId, msg.sender, moveIndex);
@@ -308,21 +329,22 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     ) external payable nonReentrant validGame(gameId) gameActive(gameId) whenNotPaused onlyRegistered {
         Game storage game = games[gameId];
         
-        if (game.playerTwo != address(0)) revert GameAlreadyStarted();
-        if (msg.sender == game.playerOne) revert CannotPlaySelf();
-        if (moveIndex > 8) revert InvalidMove();
-        if (game.board[moveIndex] != 0) revert CellOccupied();
+        if (game.playerTwo != address(0)) revert Started();
+        if (msg.sender == game.playerOne) revert SelfPlay();
+        uint256 maxCells = uint256(game.boardSize) * uint256(game.boardSize);
+        if (moveIndex >= maxCells) revert InvalidMove();
+        if (gameBoards[gameId][moveIndex] != 0) revert Occupied();
         
         // Handle payment
         if (game.tokenAddress == address(0)) {
             if (msg.value != game.betAmount) revert BetMismatch();
         } else {
-            if (msg.value > 0) revert BetMismatch();
+            if (msg.value != 0) revert BetMismatch();
             IERC20(game.tokenAddress).transferFrom(msg.sender, address(this), game.betAmount);
         }
         
         game.playerTwo = msg.sender;
-        game.board[moveIndex] = 2;
+        gameBoards[gameId][moveIndex] = 2;
         game.isPlayerOneTurn = true;
         game.lastMoveTimestamp = uint64(block.timestamp);
         
@@ -335,15 +357,16 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     function play(uint256 gameId, uint8 moveIndex) external nonReentrant validGame(gameId) gameActive(gameId) whenNotPaused {
         Game storage game = games[gameId];
         
-        if (game.playerTwo == address(0)) revert GameNotActive();
-        if (moveIndex > 8) revert InvalidMove();
-        if (game.board[moveIndex] != 0) revert CellOccupied();
+        if (game.playerTwo == address(0)) revert NotActive();
+        uint256 maxCells = uint256(game.boardSize) * uint256(game.boardSize);
+        if (moveIndex >= maxCells) revert InvalidMove();
+        if (gameBoards[gameId][moveIndex] != 0) revert Occupied();
         
-        if (game.isPlayerOneTurn && msg.sender != game.playerOne) revert NotYourTurn();
-        if (!game.isPlayerOneTurn && msg.sender != game.playerTwo) revert NotYourTurn();
+        if (game.isPlayerOneTurn && msg.sender != game.playerOne) revert NotTurn();
+        if (!game.isPlayerOneTurn && msg.sender != game.playerTwo) revert NotTurn();
         
         uint8 mark = game.isPlayerOneTurn ? 1 : 2;
-        game.board[moveIndex] = mark;
+        gameBoards[gameId][moveIndex] = mark;
         game.isPlayerOneTurn = !game.isPlayerOneTurn;
         game.lastMoveTimestamp = uint64(block.timestamp);
         
@@ -354,20 +377,43 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     function forfeitGame(uint256 gameId) external nonReentrant validGame(gameId) gameActive(gameId) {
         Game storage game = games[gameId];
         
-        if (game.playerTwo == address(0)) revert GameNotActive();
-        if (block.timestamp <= uint256(game.lastMoveTimestamp) + moveTimeout) revert TimeoutNotReached();
+        if (game.playerTwo == address(0)) revert NotActive();
+        if (block.timestamp <= uint256(game.lastMoveTimestamp) + moveTimeout) revert Timeout();
         
+        // After timeout, the last player to move (the one whose turn it is NOT) wins
+        // If it's playerOne's turn, playerTwo was the last to move, so playerTwo wins
         address winner = game.isPlayerOneTurn ? game.playerTwo : game.playerOne;
-        if (msg.sender != winner) revert UnauthorizedForfeit();
         
         game.status = GameStatus.Forfeited;
         game.winner = winner;
         
+        // Store reward for manual claiming instead of auto-transferring
         uint256 payout = game.betAmount * 2;
-        _transferPayout(winner, payout, game.tokenAddress);
+        uint256 fee = (payout * platformFeePercent) / 10000;
+        uint256 winnerPayout = payout - fee;
+        
+        claimableRewards[gameId] = winnerPayout;
+        if (fee > 0) {
+            _transferPayout(platformFeeRecipient, fee, game.tokenAddress);
+        }
         
         _updatePlayerStats(game.playerOne, game.playerTwo, winner, false);
         emit GameForfeited(gameId, winner);
+    }
+    
+    function claimReward(uint256 gameId) external nonReentrant validGame(gameId) {
+        if (rewardClaimed[gameId]) revert Claimed();
+        if (claimableRewards[gameId] == 0) revert NoReward();
+        
+        Game storage game = games[gameId];
+        if (game.winner != msg.sender) revert NotWinner();
+        
+        uint256 amount = claimableRewards[gameId];
+        rewardClaimed[gameId] = true;
+        claimableRewards[gameId] = 0; // Clear to prevent reentrancy
+        
+        _transferPayout(msg.sender, amount, game.tokenAddress);
+        emit RewardClaimed(gameId, msg.sender, amount);
     }
     
     // ============ CHALLENGE SYSTEM ============
@@ -375,19 +421,21 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     function createChallenge(
         address challenged,
         uint256 betAmount,
-        address tokenAddress
+        address tokenAddress,
+        uint8 boardSize
     ) external payable nonReentrant whenNotPaused onlyRegistered {
-        if (challenged == msg.sender) revert CannotChallengeSelf();
-        if (challenged == address(0)) revert InvalidPlayerAddress();
-        if (!players[challenged].registered) revert NotRegistered();
-        if (betAmount == 0) revert InvalidBetAmount();
-        if (!supportedTokens[tokenAddress]) revert TokenNotSupported();
+        if (challenged == msg.sender) revert SelfChallenge();
+        if (challenged == address(0)) revert InvalidAddr();
+        if (!players[challenged].registered) revert NotReg();
+        if (betAmount == 0) revert InvalidBet();
+        if (!supportedTokens[tokenAddress]) revert TokenNotSup();
+        if (boardSize != 3 && boardSize != 5 && boardSize != 7) revert InvalidSize();
         
         // Handle payment
         if (tokenAddress == address(0)) {
             if (msg.value != betAmount) revert BetMismatch();
         } else {
-            if (msg.value > 0) revert BetMismatch();
+            if (msg.value != 0) revert BetMismatch();
             IERC20(tokenAddress).transferFrom(msg.sender, address(this), betAmount);
         }
         
@@ -400,6 +448,7 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
             challengedUsername: players[challenged].username,
             betAmount: betAmount,
             tokenAddress: tokenAddress,
+            boardSize: boardSize,
             timestamp: block.timestamp,
             accepted: false,
             gameId: 0
@@ -414,9 +463,10 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     function acceptChallenge(uint256 challengeId, uint8 moveIndex) external payable nonReentrant whenNotPaused onlyRegistered {
         Challenge storage challenge = challenges[challengeId];
         
-        if (challenge.challenged != msg.sender) revert UnauthorizedForfeit();
-        if (challenge.accepted) revert ChallengeAlreadyAccepted();
-        if (moveIndex > 8) revert InvalidMove();
+        if (challenge.challenged != msg.sender) revert Unauthorized();
+        if (challenge.accepted) revert Accepted();
+        uint256 maxCells = uint256(challenge.boardSize) * uint256(challenge.boardSize);
+        if (moveIndex >= maxCells) revert InvalidMove();
         
         // Handle payment
         if (challenge.tokenAddress == address(0)) {
@@ -435,10 +485,11 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
         game.playerTwo = msg.sender;
         game.betAmount = challenge.betAmount;
         game.tokenAddress = challenge.tokenAddress;
+        game.boardSize = challenge.boardSize;
         game.isPlayerOneTurn = false;
         game.status = GameStatus.Active;
         game.lastMoveTimestamp = uint64(block.timestamp);
-        game.board[moveIndex] = 1; // Challenger's first move
+        gameBoards[gameId][moveIndex] = 1; // Challenger's first move
         
         challenge.gameId = gameId;
         
@@ -476,15 +527,6 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
         return result;
     }
     
-    function getLatestWins(uint256 limit) external view returns (WinRecord[] memory) {
-        uint256 length = latestWins.length < limit ? latestWins.length : limit;
-        WinRecord[] memory result = new WinRecord[](length);
-        for (uint256 i = 0; i < length; i++) {
-            result[i] = latestWins[i];
-        }
-        return result;
-    }
-    
     function getPlayerChallenges(address player) external view returns (uint256[] memory) {
         return playerChallenges[player];
     }
@@ -501,73 +543,121 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
         return supportedTokens[token];
     }
     
+    function getTokenName(address token) external view returns (string memory) {
+        return tokenNames[token];
+    }
+    
     // ============ INTERNAL FUNCTIONS ============
     
     function _checkWinner(uint256 gameId) internal {
         Game storage game = games[gameId];
-        uint8[9] memory board = game.board;
+        uint8 boardSize = game.boardSize;
+        uint256 totalCells = uint256(boardSize) * uint256(boardSize);
+        mapping(uint256 => uint8) storage board = gameBoards[gameId];
         
-        // Optimized winner detection - check all 8 winning combinations
-        uint8[3][8] memory combos = [
-            [uint8(0), uint8(1), uint8(2)], [uint8(3), uint8(4), uint8(5)],
-            [uint8(6), uint8(7), uint8(8)], [uint8(0), uint8(3), uint8(6)],
-            [uint8(1), uint8(4), uint8(7)], [uint8(2), uint8(5), uint8(8)],
-            [uint8(0), uint8(4), uint8(8)], [uint8(2), uint8(4), uint8(6)]
-        ];
-        
-        for (uint256 i = 0; i < 8; i++) {
-            uint8 a = board[combos[i][0]];
-            uint8 b = board[combos[i][1]];
-            uint8 c = board[combos[i][2]];
-            
-            if (a != 0 && a == b && b == c) {
-                address winner = a == 1 ? game.playerOne : game.playerTwo;
-                game.winner = winner;
-                game.status = GameStatus.Ended;
-                
-                uint256 payout = game.betAmount * 2;
-                uint256 fee = (payout * platformFeePercent) / 10000;
-                uint256 winnerPayout = payout - fee;
-                
-                _transferPayout(winner, winnerPayout, game.tokenAddress);
-                if (fee > 0) {
-                    _transferPayout(platformFeeRecipient, fee, game.tokenAddress);
+        // Check rows
+        for (uint256 row = 0; row < boardSize; ) {
+            for (uint256 col = 0; col <= boardSize - 3; ) {
+                uint256 base = row * boardSize + col;
+                uint8 a = board[base];
+                if (a != 0 && a == board[base + 1] && a == board[base + 2]) {
+                    _declareWinner(gameId, a == 1 ? game.playerOne : game.playerTwo);
+                    return;
                 }
-                
-                _updatePlayerStats(game.playerOne, game.playerTwo, winner, false);
-                _addWinRecord(gameId, winner, game.playerOne == winner ? game.playerTwo : game.playerOne);
-                _updateLeaderboard(winner);
-                
-                emit GameWon(gameId, winner, winnerPayout);
-                return;
+                unchecked { ++col; }
             }
+            unchecked { ++row; }
+        }
+        
+        // Check columns
+        for (uint256 col = 0; col < boardSize; ) {
+            for (uint256 row = 0; row <= boardSize - 3; ) {
+                uint256 idx1 = row * boardSize + col;
+                uint8 a = board[idx1];
+                if (a != 0 && a == board[idx1 + boardSize] && a == board[idx1 + 2 * boardSize]) {
+                    _declareWinner(gameId, a == 1 ? game.playerOne : game.playerTwo);
+                    return;
+                }
+                unchecked { ++row; }
+            }
+            unchecked { ++col; }
+        }
+        
+        // Check main diagonals
+        for (uint256 row = 0; row <= boardSize - 3; ) {
+            for (uint256 col = 0; col <= boardSize - 3; ) {
+                uint256 idx1 = row * boardSize + col;
+                uint8 a = board[idx1];
+                uint256 idx2 = idx1 + boardSize + 1;
+                uint256 idx3 = idx2 + boardSize + 1;
+                if (a != 0 && a == board[idx2] && a == board[idx3]) {
+                    _declareWinner(gameId, a == 1 ? game.playerOne : game.playerTwo);
+                    return;
+                }
+                unchecked { ++col; }
+            }
+            unchecked { ++row; }
+        }
+        
+        // Check anti-diagonals
+        for (uint256 row = 0; row <= boardSize - 3; ) {
+            for (uint256 col = 2; col < boardSize; ) {
+                uint256 idx1 = row * boardSize + col;
+                uint8 a = board[idx1];
+                uint256 idx2 = idx1 + boardSize - 1;
+                uint256 idx3 = idx2 + boardSize - 1;
+                if (a != 0 && a == board[idx2] && a == board[idx3]) {
+                    _declareWinner(gameId, a == 1 ? game.playerOne : game.playerTwo);
+                    return;
+                }
+                unchecked { ++col; }
+            }
+            unchecked { ++row; }
         }
         
         // Check for draw
-        bool isDraw = true;
-        for (uint256 i = 0; i < 9; i++) {
+        for (uint256 i = 0; i < totalCells; ) {
             if (board[i] == 0) {
-                isDraw = false;
-                break;
+                return; // Not a draw, game continues
             }
+            unchecked { ++i; }
         }
         
-        if (isDraw) {
-            game.status = GameStatus.Ended;
-            uint256 refund = game.betAmount;
-            _transferPayout(game.playerOne, refund, game.tokenAddress);
-            _transferPayout(game.playerTwo, refund, game.tokenAddress);
-            _updatePlayerStats(game.playerOne, game.playerTwo, address(0), true);
+        // Draw detected
+        game.status = GameStatus.Ended;
+        uint256 refund = game.betAmount;
+        _transferPayout(game.playerOne, refund, game.tokenAddress);
+        _transferPayout(game.playerTwo, refund, game.tokenAddress);
+        _updatePlayerStats(game.playerOne, game.playerTwo, address(0), true);
+    }
+    
+    function _declareWinner(uint256 gameId, address winner) internal {
+        Game storage game = games[gameId];
+        game.winner = winner;
+        game.status = GameStatus.Ended;
+        
+        uint256 payout = game.betAmount * 2;
+        uint256 fee = (payout * platformFeePercent) / 10000;
+        uint256 winnerPayout = payout - fee;
+        
+        // Store reward for manual claiming instead of auto-transferring
+        claimableRewards[gameId] = winnerPayout;
+        if (fee > 0) {
+            _transferPayout(platformFeeRecipient, fee, game.tokenAddress);
         }
+        
+        _updatePlayerStats(game.playerOne, game.playerTwo, winner, false);
+        _updateLeaderboard(winner);
+        
+        emit GameWon(gameId, winner, winnerPayout);
     }
     
     function _transferPayout(address recipient, uint256 amount, address tokenAddress) internal {
         if (tokenAddress == address(0)) {
             (bool success, ) = recipient.call{value: amount}("");
-            if (!success) revert PayoutTransferFailed();
+            if (!success) revert TransferFailed();
         } else {
-            bool success = IERC20(tokenAddress).transfer(recipient, amount);
-            if (!success) revert PayoutTransferFailed();
+            if (!IERC20(tokenAddress).transfer(recipient, amount)) revert TransferFailed();
         }
     }
     
@@ -593,10 +683,9 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
         uint256 winnerRating = players[winner].rating;
         uint256 loserRating = players[loser].rating;
         
-        // ELO calculation (simplified)
-        uint256 expectedWinner = (1000 * (10 ** 18)) / (1000 * (10 ** 18) + (1000 + loserRating - winnerRating) * (10 ** 18) / 1000);
-        uint256 kFactor = 32;
-        uint256 ratingChange = (kFactor * (10 ** 18 - expectedWinner)) / (10 ** 18);
+        // Simplified ELO: rating change based on difference
+        uint256 diff = winnerRating > loserRating ? winnerRating - loserRating : loserRating - winnerRating;
+        uint256 ratingChange = diff > kFactor ? kFactor : diff;
         
         if (winnerRating + ratingChange > winnerRating) {
             players[winner].rating = winnerRating + ratingChange;
@@ -608,76 +697,56 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
         }
     }
     
-    function _addWinRecord(uint256 gameId, address winner, address opponent) internal {
-        if (latestWins.length >= MAX_WIN_RECORDS) {
-            // Remove oldest
-            for (uint256 i = 0; i < latestWins.length - 1; i++) {
-                latestWins[i] = latestWins[i + 1];
-            }
-            latestWins.pop();
-        }
-        
-        latestWins.push(WinRecord({
-            gameId: gameId,
-            winner: winner,
-            winnerUsername: players[winner].username,
-            opponent: opponent,
-            opponentUsername: players[opponent].username,
-            payout: games[gameId].betAmount * 2,
-            timestamp: block.timestamp
-        }));
-        
-        emit LatestWinRecorded(gameId, winner, players[winner].username, opponent, players[opponent].username);
-    }
-    
     function _updateLeaderboard(address player) internal {
         Player memory playerData = players[player];
-        
-        // Find if player is already in leaderboard
-        uint256 insertIndex = leaderboard.length;
+        uint256 len = leaderboard.length;
         bool found = false;
+        uint256 insertIndex = len;
         
-        for (uint256 i = 0; i < leaderboard.length; i++) {
+        // Find player or insertion point
+        for (uint256 i = 0; i < len; ) {
             if (leaderboard[i].player == player) {
                 leaderboard[i].rating = playerData.rating;
                 leaderboard[i].wins = playerData.wins;
                 found = true;
+                // Only need to re-sort if rating changed significantly
                 break;
             }
             if (!found && playerData.rating > leaderboard[i].rating) {
                 insertIndex = i;
                 break;
             }
+            unchecked { ++i; }
         }
         
-        if (!found) {
-            if (insertIndex < LEADERBOARD_SIZE) {
-                // Insert at position
-                leaderboard.push();
-                for (uint256 i = leaderboard.length - 1; i > insertIndex; i--) {
-                    leaderboard[i] = leaderboard[i - 1];
-                }
-                leaderboard[insertIndex] = LeaderboardEntry({
-                    player: player,
-                    username: playerData.username,
-                    rating: playerData.rating,
-                    wins: playerData.wins
-                });
-                
-                // Trim if exceeds size
-                if (leaderboard.length > LEADERBOARD_SIZE) {
-                    leaderboard.pop();
-                }
+        if (!found && insertIndex < LEADERBOARD_SIZE) {
+            // Insert at position
+            leaderboard.push();
+            for (uint256 i = len; i > insertIndex; ) {
+                leaderboard[i] = leaderboard[i - 1];
+                unchecked { --i; }
             }
-        } else {
-            // Re-sort leaderboard
-            for (uint256 i = 0; i < leaderboard.length - 1; i++) {
-                for (uint256 j = 0; j < leaderboard.length - i - 1; j++) {
-                    if (leaderboard[j].rating < leaderboard[j + 1].rating) {
-                        LeaderboardEntry memory temp = leaderboard[j];
-                        leaderboard[j] = leaderboard[j + 1];
-                        leaderboard[j + 1] = temp;
-                    }
+            leaderboard[insertIndex] = LeaderboardEntry({
+                player: player,
+                username: playerData.username,
+                rating: playerData.rating,
+                wins: playerData.wins
+            });
+            
+            // Trim if exceeds size
+            if (leaderboard.length > LEADERBOARD_SIZE) {
+                leaderboard.pop();
+            }
+        } else if (found) {
+            // Simple re-sort only when needed (optimized)
+            for (uint256 i = 0; i < len - 1; ) {
+                if (leaderboard[i].rating < leaderboard[i + 1].rating) {
+                    LeaderboardEntry memory temp = leaderboard[i];
+                    leaderboard[i] = leaderboard[i + 1];
+                    leaderboard[i + 1] = temp;
+                    if (i > 0) { --i; } // Check previous
+                } else {
+                    unchecked { ++i; }
                 }
             }
         }
