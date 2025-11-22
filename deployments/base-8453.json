@@ -1,0 +1,13 @@
+{
+  "contractName": "BlOcXTacToe",
+  "address": "0x52e3C6FF91c51493E08434E806bD54Bd5c7a2151",
+  "deployer": "0x95f87C578aA1d3E72Ba7ee27d2d506c3CE8f8f10",
+  "network": "base",
+  "chainId": "8453",
+  "transactionHash": "0x34902c304cc58e1e782ab37a9942d05412143a65425aba5d366db2de791d386a",
+  "timestamp": "2025-11-22T02:59:38.213Z",
+  "blockNumber": 38495515,
+  "moveTimeout": "24 hours (configurable)",
+  "platformFeePercent": "0% (configurable)",
+  "constructorArgs": []
+}

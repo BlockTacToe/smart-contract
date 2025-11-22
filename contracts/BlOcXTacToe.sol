@@ -608,7 +608,7 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
                 uint256 idx3 = idx2 + boardSize - 1;
                 if (a != 0 && a == board[idx2] && a == board[idx3]) {
                     _declareWinner(gameId, a == 1 ? game.playerOne : game.playerTwo);
-                    return;
+                return;
                 }
                 unchecked { ++col; }
             }
@@ -624,12 +624,12 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
         }
         
         // Draw detected
-        game.status = GameStatus.Ended;
-        uint256 refund = game.betAmount;
-        _transferPayout(game.playerOne, refund, game.tokenAddress);
-        _transferPayout(game.playerTwo, refund, game.tokenAddress);
-        _updatePlayerStats(game.playerOne, game.playerTwo, address(0), true);
-    }
+            game.status = GameStatus.Ended;
+            uint256 refund = game.betAmount;
+            _transferPayout(game.playerOne, refund, game.tokenAddress);
+            _transferPayout(game.playerTwo, refund, game.tokenAddress);
+            _updatePlayerStats(game.playerOne, game.playerTwo, address(0), true);
+        }
     
     function _declareWinner(uint256 gameId, address winner) internal {
         Game storage game = games[gameId];
@@ -720,23 +720,23 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
         }
         
         if (!found && insertIndex < LEADERBOARD_SIZE) {
-            // Insert at position
-            leaderboard.push();
+                // Insert at position
+                leaderboard.push();
             for (uint256 i = len; i > insertIndex; ) {
-                leaderboard[i] = leaderboard[i - 1];
+                    leaderboard[i] = leaderboard[i - 1];
                 unchecked { --i; }
-            }
-            leaderboard[insertIndex] = LeaderboardEntry({
-                player: player,
-                username: playerData.username,
-                rating: playerData.rating,
-                wins: playerData.wins
-            });
-            
-            // Trim if exceeds size
-            if (leaderboard.length > LEADERBOARD_SIZE) {
-                leaderboard.pop();
-            }
+                }
+                leaderboard[insertIndex] = LeaderboardEntry({
+                    player: player,
+                    username: playerData.username,
+                    rating: playerData.rating,
+                    wins: playerData.wins
+                });
+                
+                // Trim if exceeds size
+                if (leaderboard.length > LEADERBOARD_SIZE) {
+                    leaderboard.pop();
+                }
         } else if (found) {
             // Simple re-sort only when needed (optimized)
             for (uint256 i = 0; i < len - 1; ) {
@@ -745,7 +745,7 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
                     leaderboard[i] = leaderboard[i + 1];
                     leaderboard[i + 1] = temp;
                     if (i > 0) { --i; } // Check previous
-                } else {
+        } else {
                     unchecked { ++i; }
                 }
             }

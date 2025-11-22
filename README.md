@@ -154,6 +154,13 @@ npm run deploy:sepolia
 - **Chain ID:** `11155111` (or Base Sepolia chain ID)
 - **Contract:** `TBD` (To be deployed)
 
+## 📦 Deployments
+
+- **Sepolia (testnet):** `0x5c6a9F3511773bc0DBf6354623104f01Ac8EE629` (deployed 2025-11-15)
+- **Base (mainnet):** `0x52e3C6FF91c51493E08434E806bD54Bd5c7a2151` (deployed 2025-11-22, verified)
+
+> Note: The Sepolia address is kept for testing/reference. The Base address is the live mainnet deployment. Keep both entries for clarity when testing or updating the frontend.
+
 ### Example .env
 
 ```
