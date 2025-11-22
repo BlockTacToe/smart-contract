@@ -1,13 +1,17 @@
 {
   "contractName": "BlOcXTacToe",
-  "address": "0x5c6a9F3511773bc0DBf6354623104f01Ac8EE629",
-  "deployer": "0x0eE1F2b663547dAa487F57C517C7563AdCf86da0",
-  "network": "baseSepolia",
-  "chainId": "84532",
-  "transactionHash": "0x534dd408d6a9158dfc52a97974198149528806284bdccdff13c64781f3e16ac5",
-  "timestamp": "2025-11-15T05:27:52.429Z",
-  "blockNumber": 33708092,
+  "address": "0x52e3C6FF91c51493E08434E806bD54Bd5c7a2151",
+  "deployer": "0x95f87C578aA1d3E72Ba7ee27d2d506c3CE8f8f10",
+  "network": "base",
+  "chainId": "8453",
+  "transactionHash": "0x34902c304cc58e1e782ab37a9942d05412143a65425aba5d366db2de791d386a",
+  "timestamp": "2025-11-22T02:59:38.213Z",
+  "blockNumber": 38495515,
   "moveTimeout": "24 hours (configurable)",
   "platformFeePercent": "0% (configurable)",
-  "constructorArgs": []
+  "constructorArgs": [],
+  "verified": true,
+  "verifiedAt": "2025-11-22T02:59:42.000Z",
+  "notes": "Verified via hardhat verify; deployment info also saved to deployments/base-8453.json",
+  "deploymentsFile": "deployments/base-8453.json"
 }
