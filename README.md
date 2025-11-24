@@ -13,6 +13,7 @@ A fully decentralized, peer-to-peer Tic Tac Toe game built on Ethereum with ETH 
 - **🏆 Social Competition:** Winner celebration and challenge sharing system
 
 Create/join/play flows for PvP Tic Tac Toe:
+
 - Bets escrowed in contract; winner takes all
 - Turn enforcement and move validation
 - Automatic winner detection (3-in-a-row)
@@ -28,6 +29,7 @@ Create/join/play flows for PvP Tic Tac Toe:
 - **Dependencies:** OpenZeppelin (ReentrancyGuard, helpers)
 
 **Key Features:**
+
 - Game creation with custom bet amounts
 - Turn-based move validation
 - Automatic winner detection
@@ -108,6 +110,7 @@ struct Game {
 - **Reentrancy Protection:** Secure against reentrancy attacks
 
 **Security Considerations:**
+
 - Reentrancy protection on state-changing functions that transfer ETH
 - Checks-Effects-Interactions pattern
 - Input validation (bounds, empty cell, correct turn/move)
@@ -196,6 +199,7 @@ npm run verify:sepolia
 ## 🧪 Testing
 
 The smart contract includes comprehensive tests covering:
+
 - ✅ Game creation and joining
 - ✅ Turn-based gameplay
 - ✅ Move validation (bounds, occupied spots)
@@ -204,12 +208,14 @@ The smart contract includes comprehensive tests covering:
 - ✅ Timeout and forfeit mechanisms
 
 **Testing Details:**
+
 - Core flow: create → join → play → win (X and O)
 - Validation failures: out-of-bounds, occupied, wrong turn/move
 - Timeout scenarios and forfeit edge cases
 - Security tests: reentrancy, bad inputs, invariant checks
 
 **Run tests:**
+
 ```bash
 cd smart-contracts
 npm test
@@ -259,6 +265,7 @@ This project is open source and available under the [MIT License](LICENSE).
 #### Smart Contract Issues
 
 - [x] **Issue #1:** Core Smart Contract Implementation ✅
+
   - [x] Create `TicTacToe.sol` with basic game structure
   - [x] Implement `createGame(uint256 betAmount, uint8 moveIndex)` function
   - [x] Implement `joinGame(uint256 gameId, uint8 moveIndex)` function
@@ -271,6 +278,7 @@ This project is open source and available under the [MIT License](LICENSE).
   - [x] Create read-only functions `getGame()` and `getLatestGameId()`
 
 - [x] **Issue #2:** Timeout/Forfeit Mechanism Implementation ✅
+
   - [x] Add `lastMoveTimestamp` field to game struct
   - [x] Implement 24-hour timeout constant and validation
   - [x] Create `forfeitGame(uint256 gameId)` function
@@ -294,6 +302,7 @@ This project is open source and available under the [MIT License](LICENSE).
 #### Smart Contract Issues
 
 - [ ] **Issue #8:** Gas Optimization & Efficiency
+
   - [ ] Optimize storage layout to reduce gas costs
   - [ ] Implement batch operations where possible
   - [ ] Use packed structs to reduce storage slots
@@ -318,6 +327,7 @@ This project is open source and available under the [MIT License](LICENSE).
 #### Smart Contract Issues
 
 - [ ] **Issue #12:** Advanced Game Mechanics
+
   - [ ] Implement different game modes (timed, untimed, custom rules)
   - [ ] Add game difficulty levels
   - [ ] Create custom board sizes (4x4, 5x5)
