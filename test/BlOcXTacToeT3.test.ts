@@ -288,5 +288,84 @@ describe("BlOcXTacToe - Claim Reward & Challenge System Tests (T3)", function ()
       ).to.be.revertedWithCustomError(blocXTacToe, "TokenNotSup");
     });
   });
+
+  // ============ TEST 3: Challenge System - acceptChallenge() ============
+  
+  describe("Challenge System - acceptChallenge() Edge Cases", function () {
+    async function setupChallengeFixture() {
+      const { blocXTacToe, owner, player1, player2, erc20Mock, erc20Address } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      
+      // Set up ERC20 token support
+      await blocXTacToe.connect(owner).addAdmin(owner.address);
+      await blocXTacToe.connect(owner).setSupportedToken(erc20Address, true, "TEST");
+      
+      return { blocXTacToe, owner, player1, player2, erc20Mock, erc20Address };
+    }
+
+    it("Should accept challenge with ERC20 token payment", async function () {
+      const { blocXTacToe, owner, player1, player2, erc20Mock, erc20Address } = await loadFixture(setupChallengeFixture);
+      
+      const betAmount = ethers.parseEther("0.1");
+      await erc20Mock.connect(owner).mint(player1.address, betAmount * 2n);
+      await erc20Mock.connect(owner).mint(player2.address, betAmount * 2n);
+      await erc20Mock.connect(player1).approve(await blocXTacToe.getAddress(), betAmount);
+      await erc20Mock.connect(player2).approve(await blocXTacToe.getAddress(), betAmount);
+      
+      // Create challenge with ERC20
+      await blocXTacToe.connect(player1).createChallenge(player2.address, betAmount, erc20Address, 3);
+      
+      // Accept challenge
+      await expect(
+        blocXTacToe.connect(player2).acceptChallenge(0, 5)
+      )
+        .to.emit(blocXTacToe, "ChallengeAccepted")
+        .withArgs(0, 0); // challengeId, gameId
+      
+      const challenge = await blocXTacToe.getChallenge(0);
+      expect(challenge.accepted).to.be.true;
+      expect(challenge.gameId).to.equal(0);
+      
+      const game = await blocXTacToe.games(0);
+      expect(game.playerOne).to.equal(player1.address);
+      expect(game.playerTwo).to.equal(player2.address);
+      expect(game.tokenAddress).to.equal(erc20Address);
+    });
+
+    it("Should revert if move index is invalid", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupChallengeFixture);
+      
+      const betAmount = ethers.parseEther("0.1");
+      await blocXTacToe.connect(player1).createChallenge(player2.address, betAmount, ethers.ZeroAddress, 3, { value: betAmount });
+      
+      // Invalid move index for 3x3 board (9 cells, valid indices 0-8)
+      await expect(
+        blocXTacToe.connect(player2).acceptChallenge(0, 9, { value: betAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "InvalidMove");
+    });
+
+    it("Should create game from challenge correctly", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupChallengeFixture);
+      
+      const betAmount = ethers.parseEther("0.1");
+      await blocXTacToe.connect(player1).createChallenge(player2.address, betAmount, ethers.ZeroAddress, 5, { value: betAmount });
+      
+      await blocXTacToe.connect(player2).acceptChallenge(0, 12, { value: betAmount });
+      
+      const challenge = await blocXTacToe.getChallenge(0);
+      expect(challenge.gameId).to.equal(0);
+      expect(challenge.accepted).to.be.true;
+      
+      const game = await blocXTacToe.games(0);
+      expect(game.playerOne).to.equal(player1.address);
+      expect(game.playerTwo).to.equal(player2.address);
+      expect(game.betAmount).to.equal(betAmount);
+      expect(game.boardSize).to.equal(5);
+      expect(game.tokenAddress).to.equal(ethers.ZeroAddress);
+      expect(game.status).to.equal(0); // Active
+      expect(await blocXTacToe.gameBoards(0, 12)).to.equal(1); // Challenger's first move
+    });
+  });
 });
 
