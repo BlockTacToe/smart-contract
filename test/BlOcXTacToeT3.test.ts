@@ -1,0 +1,186 @@
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import { loadFixture, time } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { BlOcXTacToe, ERC20Mock } from "../typechain-types";
+import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
+
+describe("BlOcXTacToe - Claim Reward & Challenge System Tests (T3)", function () {
+  // Deploy contract fixture
+  async function deployBlOcXTacToeFixture() {
+    const signers = await ethers.getSigners();
+    const [owner, admin, player1, player2, player3, randomUser, feeRecipient] = signers;
+
+    const BlOcXTacToeFactory = await ethers.getContractFactory("BlOcXTacToe", owner);
+    const blocXTacToe = await BlOcXTacToeFactory.deploy();
+
+    await blocXTacToe.waitForDeployment();
+    const contractAddress = await blocXTacToe.getAddress();
+
+    // Deploy ERC20Mock for token payment tests
+    const ERC20MockFactory = await ethers.getContractFactory("ERC20Mock", owner);
+    const erc20Mock = await ERC20MockFactory.deploy(
+      "Test Token",
+      "TEST",
+      owner.address,
+      ethers.parseEther("1000000") // 1M tokens
+    );
+    await erc20Mock.waitForDeployment();
+    const erc20Address = await erc20Mock.getAddress();
+
+    return { 
+      blocXTacToe, 
+      owner, 
+      admin, 
+      player1, 
+      player2, 
+      player3, 
+      randomUser, 
+      feeRecipient, 
+      contractAddress,
+      erc20Mock,
+      erc20Address
+    };
+  }
+
+  // ============ TEST 1: Claim Reward - Edge Cases ============
+  
+  describe("Claim Reward - Edge Cases", function () {
+    // Setup game with platform fee for testing
+    async function setupGameWithFeeFixture() {
+      const { blocXTacToe, owner, player1, player2, feeRecipient } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      
+      // Set platform fee to 5% (500 basis points)
+      await blocXTacToe.connect(owner).addAdmin(owner.address);
+      await blocXTacToe.connect(owner).setPlatformFee(500);
+      await blocXTacToe.connect(owner).setPlatformFeeRecipient(feeRecipient.address);
+      
+      const betAmount = ethers.parseEther("1.0");
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
+      
+      // Player1 wins (0, 3, 6)
+      await blocXTacToe.connect(player1).play(0, 3);
+      await blocXTacToe.connect(player2).play(0, 4);
+      await blocXTacToe.connect(player1).play(0, 6);
+      
+      return { blocXTacToe, owner, player1, player2, feeRecipient, betAmount };
+    }
+
+    it("Should deduct platform fee on reward claim", async function () {
+      const { blocXTacToe, player1, betAmount } = await loadFixture(setupGameWithFeeFixture);
+      
+      // Total payout is 2 * betAmount = 2.0 ETH
+      // Fee is 5% = 0.1 ETH
+      // Winner payout is 1.9 ETH
+      const totalPayout = betAmount * 2n;
+      const expectedFee = (totalPayout * 500n) / 10000n;
+      const expectedWinnerPayout = totalPayout - expectedFee;
+      
+      const balanceBefore = await ethers.provider.getBalance(player1.address);
+      const tx = await blocXTacToe.connect(player1).claimReward(0);
+      const receipt = await tx.wait();
+      const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
+      const balanceAfter = await ethers.provider.getBalance(player1.address);
+      
+      const claimableReward = await blocXTacToe.claimableRewards(0);
+      expect(claimableReward).to.equal(0); // Should be cleared after claim
+      
+      // Balance increase should be winner payout minus gas
+      expect(balanceAfter - balanceBefore + gasUsed).to.equal(expectedWinnerPayout);
+    });
+
+    it("Should transfer platform fee to fee recipient", async function () {
+      const { blocXTacToe, owner, player1, player2, feeRecipient } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      
+      // Set platform fee to 5% (500 basis points)
+      await blocXTacToe.connect(owner).addAdmin(owner.address);
+      await blocXTacToe.connect(owner).setPlatformFee(500);
+      await blocXTacToe.connect(owner).setPlatformFeeRecipient(feeRecipient.address);
+      
+      const betAmount = ethers.parseEther("1.0");
+      const balanceBefore = await ethers.provider.getBalance(feeRecipient.address);
+      
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
+      
+      // Player1 wins (0, 3, 6) - this triggers _declareWinner which transfers fee
+      await blocXTacToe.connect(player1).play(0, 3);
+      await blocXTacToe.connect(player2).play(0, 4);
+      await blocXTacToe.connect(player1).play(0, 6);
+      
+      const balanceAfter = await ethers.provider.getBalance(feeRecipient.address);
+      const totalPayout = betAmount * 2n;
+      const expectedFee = (totalPayout * 500n) / 10000n;
+      
+      // Fee should have been transferred when game ended (in _declareWinner)
+      expect(balanceAfter - balanceBefore).to.equal(expectedFee);
+    });
+
+    it("Should claim ERC20 token reward correctly", async function () {
+      const { blocXTacToe, owner, player1, player2, erc20Mock, erc20Address } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      
+      // Set up ERC20 token support
+      await blocXTacToe.connect(owner).addAdmin(owner.address);
+      await blocXTacToe.connect(owner).setSupportedToken(erc20Address, true, "TEST");
+      
+      const betAmount = ethers.parseEther("1.0");
+      await erc20Mock.connect(owner).mint(player1.address, betAmount * 2n);
+      await erc20Mock.connect(owner).mint(player2.address, betAmount * 2n);
+      await erc20Mock.connect(player1).approve(await blocXTacToe.getAddress(), betAmount);
+      await erc20Mock.connect(player2).approve(await blocXTacToe.getAddress(), betAmount);
+      
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, erc20Address, 3);
+      await blocXTacToe.connect(player2).joinGame(0, 1);
+      
+      // Player1 wins
+      await blocXTacToe.connect(player1).play(0, 3);
+      await blocXTacToe.connect(player2).play(0, 4);
+      await blocXTacToe.connect(player1).play(0, 6);
+      
+      const balanceBefore = await erc20Mock.balanceOf(player1.address);
+      await blocXTacToe.connect(player1).claimReward(0);
+      const balanceAfter = await erc20Mock.balanceOf(player1.address);
+      
+      // Should receive 2 * betAmount (no fee in this case, default is 0%)
+      expect(balanceAfter - balanceBefore).to.equal(betAmount * 2n);
+    });
+
+    it("Should claim reward after forfeit", async function () {
+      const { blocXTacToe, player1, player2, betAmount } = await loadFixture(setupGameWithFeeFixture);
+      
+      // Create a new game that will be forfeited
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(1, 1, { value: betAmount });
+      
+      // Make a move to set lastMoveTimestamp
+      await blocXTacToe.connect(player1).play(1, 3);
+      
+      // Fast forward past timeout
+      await time.increase(25 * 60 * 60); // 25 hours
+      
+      // Player2 forfeits (player1 wins since it's player2's turn)
+      await blocXTacToe.connect(player2).forfeitGame(1);
+      
+      const game = await blocXTacToe.games(1);
+      expect(game.status).to.equal(2); // Forfeited = 2 (Active=0, Ended=1, Forfeited=2)
+      expect(game.winner).to.equal(player1.address);
+      
+      // Player1 should be able to claim reward
+      const balanceBefore = await ethers.provider.getBalance(player1.address);
+      const tx = await blocXTacToe.connect(player1).claimReward(1);
+      const receipt = await tx.wait();
+      const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
+      const balanceAfter = await ethers.provider.getBalance(player1.address);
+      
+      const expectedPayout = betAmount * 2n - ((betAmount * 2n * 500n) / 10000n);
+      expect(balanceAfter - balanceBefore + gasUsed).to.equal(expectedPayout);
+    });
+  });
+});
+
