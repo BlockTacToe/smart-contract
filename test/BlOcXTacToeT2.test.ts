@@ -1,8 +1,9 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
-import { BlOcXTacToe } from "../typechain-types";
+import { BlOcXTacToe, ERC20Mock } from "../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
+import { ERC20Mock } from "../typechain-types";
 
 describe("BlOcXTacToe - Additional Test Coverage (T2)", function () {
   // Deploy contract fixture
@@ -16,6 +17,17 @@ describe("BlOcXTacToe - Additional Test Coverage (T2)", function () {
     await blocXTacToe.waitForDeployment();
     const contractAddress = await blocXTacToe.getAddress();
 
+    // Deploy ERC20Mock for token payment tests
+    const ERC20MockFactory = await ethers.getContractFactory("ERC20Mock", owner);
+    const erc20Mock = await ERC20MockFactory.deploy(
+      "Test Token",
+      "TEST",
+      owner.address,
+      ethers.parseEther("1000000") // 1M tokens
+    );
+    await erc20Mock.waitForDeployment();
+    const erc20Address = await erc20Mock.getAddress();
+
     return { 
       blocXTacToe, 
       owner, 
@@ -25,7 +37,9 @@ describe("BlOcXTacToe - Additional Test Coverage (T2)", function () {
       player3, 
       randomUser, 
       feeRecipient, 
-      contractAddress 
+      contractAddress,
+      erc20Mock,
+      erc20Address
     };
   }
 
@@ -367,5 +381,124 @@ describe("BlOcXTacToe - Additional Test Coverage (T2)", function () {
     });
   });
 
-});
+  // ============ TEST 5: Game Functions - joinGame() Edge Cases ============
 
+  describe("Game Functions - joinGame() Edge Cases", function () {
+    it("Should allow joining game with ERC20 token payment", async function () {
+      const { blocXTacToe, owner, admin, player1, player2, erc20Mock, erc20Address } = await loadFixture(deployBlOcXTacToeFixture);
+
+      // Setup: Add admin and support token
+      await blocXTacToe.connect(owner).addAdmin(admin.address);
+      await blocXTacToe.connect(admin).setSupportedToken(erc20Address, true, "TestToken");
+
+      // Register players
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+
+      // Mint tokens and approve
+      const betAmount = ethers.parseEther("100");
+      await erc20Mock.mint(player1.address, betAmount);
+      await erc20Mock.mint(player2.address, betAmount);
+      await erc20Mock.connect(player1).approve(await blocXTacToe.getAddress(), betAmount);
+      await erc20Mock.connect(player2).approve(await blocXTacToe.getAddress(), betAmount);
+
+      // Player1 creates game with ERC20
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, erc20Address, 3);
+
+      // Player2 joins game with ERC20
+      await expect(blocXTacToe.connect(player2).joinGame(0, 1))
+        .to.emit(blocXTacToe, "GameJoined");
+
+      // Verify game state
+      const game = await blocXTacToe.getGame(0);
+      expect(game.playerTwo).to.equal(player2.address);
+      expect(game.tokenAddress).to.equal(erc20Address);
+    });
+
+    it("Should revert if sending ETH when game expects ERC20 token", async function () {
+      const { blocXTacToe, owner, admin, player1, player2, erc20Mock, erc20Address } = await loadFixture(deployBlOcXTacToeFixture);
+
+      // Setup
+      await blocXTacToe.connect(owner).addAdmin(admin.address);
+      await blocXTacToe.connect(admin).setSupportedToken(erc20Address, true, "TestToken");
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+
+      const betAmount = ethers.parseEther("100");
+
+      // Mint tokens and approve
+      await erc20Mock.mint(player1.address, betAmount);
+      await erc20Mock.connect(player1).approve(await blocXTacToe.getAddress(), betAmount);
+
+      // Create game with ERC20
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, erc20Address, 3);
+
+      // Try to join with ETH instead of ERC20
+      await expect(
+        blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "BetMismatch");
+    });
+
+    it("Should revert if sending ERC20 when game expects ETH", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(deployBlOcXTacToeFixture);
+
+      // Register players
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+
+      const betAmount = ethers.parseEther("0.01");
+
+      // Create game with ETH (tokenAddress = ZeroAddress)
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+
+      // Try to join without ETH (no value sent, which would be correct for ERC20 but wrong here)
+      await expect(blocXTacToe.connect(player2).joinGame(0, 1))
+        .to.be.revertedWithCustomError(blocXTacToe, "BetMismatch");
+    });
+
+    it("Should revert if ETH payment amount is wrong", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+
+      const betAmount = ethers.parseEther("0.01");
+      const wrongAmount = ethers.parseEther("0.005"); // Wrong amount
+
+      // Create game with ETH
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+
+      // Try to join with wrong ETH amount
+      await expect(
+        blocXTacToe.connect(player2).joinGame(0, 1, { value: wrongAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "BetMismatch");
+    });
+
+    it("Should revert if ERC20 allowance is insufficient", async function () {
+      const { blocXTacToe, owner, admin, player1, player2, erc20Mock, erc20Address } = await loadFixture(deployBlOcXTacToeFixture);
+
+      // Setup
+      await blocXTacToe.connect(owner).addAdmin(admin.address);
+      await blocXTacToe.connect(admin).setSupportedToken(erc20Address, true, "TestToken");
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+
+      const betAmount = ethers.parseEther("100");
+
+      // Mint tokens but don't approve enough
+      await erc20Mock.mint(player1.address, betAmount);
+      await erc20Mock.mint(player2.address, betAmount);
+      await erc20Mock.connect(player1).approve(await blocXTacToe.getAddress(), betAmount);
+      // Player2 approves less than betAmount
+      await erc20Mock.connect(player2).approve(await blocXTacToe.getAddress(), ethers.parseEther("50"));
+
+      // Create game
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, erc20Address, 3);
+
+      // Try to join - should fail due to insufficient allowance
+      await expect(blocXTacToe.connect(player2).joinGame(0, 1))
+        .to.be.reverted; // ERC20 transferFrom will revert
+    });
+  });
+
+});
