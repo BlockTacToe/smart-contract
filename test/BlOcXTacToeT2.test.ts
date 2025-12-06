@@ -501,4 +501,211 @@ describe("BlOcXTacToe - Additional Test Coverage (T2)", function () {
     });
   });
 
+  // ============ TEST 6: Game Functions - play() Edge Cases ============
+
+  describe("Game Functions - play() Edge Cases", function () {
+    async function setupGameFixture(boardSize: number = 3) {
+      const { blocXTacToe, player1, player2 } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      const betAmount = ethers.parseEther("0.01");
+
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, boardSize, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
+
+      return { blocXTacToe, player1, player2 };
+    }
+
+    it("Should detect horizontal win on 5x5 board", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 5));
+
+      // 5x5 board: create horizontal win in row 2 (positions 10, 11, 12)
+      // X at 0, O at 1 (from setup)
+      // X plays at 10 (row 2, col 0)
+      await blocXTacToe.connect(player1).play(0, 10);
+      // O plays at 13 (row 2, col 3) - to avoid blocking
+      await blocXTacToe.connect(player2).play(0, 13);
+      // X plays at 11 (row 2, col 1)
+      await blocXTacToe.connect(player1).play(0, 11);
+      // O plays at 14 (row 2, col 4)
+      await blocXTacToe.connect(player2).play(0, 14);
+      // X plays at 12 (row 2, col 2) - horizontal win!
+      await blocXTacToe.connect(player1).play(0, 12);
+
+      const game = await blocXTacToe.getGame(0);
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect vertical win on 5x5 board", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 5));
+
+      // 5x5 board: column 2 has positions 2, 7, 12
+      // X at 0, O at 1 (from setup)
+      // X plays at 2 (column 2, row 0)
+      await blocXTacToe.connect(player1).play(0, 2);
+      // O plays at 3
+      await blocXTacToe.connect(player2).play(0, 3);
+      // X plays at 7 (column 2, row 1)
+      await blocXTacToe.connect(player1).play(0, 7);
+      // O plays at 4
+      await blocXTacToe.connect(player2).play(0, 4);
+      // X plays at 12 (column 2, row 2) - vertical win!
+      await blocXTacToe.connect(player1).play(0, 12);
+
+      const game = await blocXTacToe.getGame(0);
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect main diagonal win on 5x5 board", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 5));
+
+      // 5x5 board: main diagonal starting at 0: 0, 6, 12
+      // X at 0 (from setup), O at 1
+      // X plays at 6
+      await blocXTacToe.connect(player1).play(0, 6);
+      // O plays at 2
+      await blocXTacToe.connect(player2).play(0, 2);
+      // X plays at 12 - main diagonal win!
+      await blocXTacToe.connect(player1).play(0, 12);
+
+      const game = await blocXTacToe.getGame(0);
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect anti-diagonal win on 5x5 board", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 5));
+
+      // 5x5 board: anti-diagonal starting at 2: 2, 6, 10
+      // X at 0, O at 1 (from setup)
+      // X plays at 2
+      await blocXTacToe.connect(player1).play(0, 2);
+      // O plays at 3
+      await blocXTacToe.connect(player2).play(0, 3);
+      // X plays at 6
+      await blocXTacToe.connect(player1).play(0, 6);
+      // O plays at 4
+      await blocXTacToe.connect(player2).play(0, 4);
+      // X plays at 10 - anti-diagonal win!
+      await blocXTacToe.connect(player1).play(0, 10);
+
+      const game = await blocXTacToe.getGame(0);
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect horizontal win on 7x7 board", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 7));
+
+      // 7x7 board: row 3 has positions 21, 22, 23
+      // X at 0, O at 1 (from setup)
+      // X plays at 21 (row 3, col 0)
+      await blocXTacToe.connect(player1).play(0, 21);
+      // O plays at 24 (row 3, col 3) - to avoid blocking
+      await blocXTacToe.connect(player2).play(0, 24);
+      // X plays at 22 (row 3, col 1)
+      await blocXTacToe.connect(player1).play(0, 22);
+      // O plays at 25 (row 3, col 4)
+      await blocXTacToe.connect(player2).play(0, 25);
+      // X plays at 23 (row 3, col 2) - horizontal win!
+      await blocXTacToe.connect(player1).play(0, 23);
+
+      const game = await blocXTacToe.getGame(0);
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect vertical win on 7x7 board", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 7));
+
+      // 7x7 board: column 3 has positions 3, 10, 17
+      // X at 0, O at 1 (from setup)
+      // X plays at 3
+      await blocXTacToe.connect(player1).play(0, 3);
+      // O plays at 4
+      await blocXTacToe.connect(player2).play(0, 4);
+      // X plays at 10
+      await blocXTacToe.connect(player1).play(0, 10);
+      // O plays at 5
+      await blocXTacToe.connect(player2).play(0, 5);
+      // X plays at 17 - vertical win!
+      await blocXTacToe.connect(player1).play(0, 17);
+
+      const game = await blocXTacToe.getGame(0);
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect main diagonal win on 7x7 board", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 7));
+
+      // 7x7 board: main diagonal starting at 0: 0, 8, 16
+      // X at 0 (from setup), O at 1
+      // X plays at 8
+      await blocXTacToe.connect(player1).play(0, 8);
+      // O plays at 2
+      await blocXTacToe.connect(player2).play(0, 2);
+      // X plays at 16 - main diagonal win!
+      await blocXTacToe.connect(player1).play(0, 16);
+
+      const game = await blocXTacToe.getGame(0);
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect draw on 5x5 board (all cells filled, no winner)", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 5));
+
+      // Fill board systematically to avoid wins - use a checkerboard pattern
+      // X at 0, O at 1 (from setup)
+      // We need to fill remaining 23 positions without creating 3-in-a-row
+      // Pattern: alternate players in a way that prevents any consecutive 3
+      const moves = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
+
+      // Play moves alternately starting with player1 (X)
+      for (let i = 0; i < moves.length; i++) {
+        const pos = moves[i];
+        // Alternate: player1 (X), player2 (O), player1, player2, etc.
+        if (i % 2 === 0) {
+          await blocXTacToe.connect(player1).play(0, pos);
+        } else {
+          await blocXTacToe.connect(player2).play(0, pos);
+        }
+      }
+
+      const game = await blocXTacToe.getGame(0);
+      // Game should end in draw (all cells filled, no winner)
+      expect(game.status).to.equal(1); // Ended
+      expect(game.winner).to.equal(ethers.ZeroAddress); // No winner
+    });
+
+    it("Should revert if move index exceeds board size", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 5));
+
+      // 5x5 board has 25 cells (0-24), so 25 should be invalid
+      await expect(blocXTacToe.connect(player1).play(0, 25))
+        .to.be.revertedWithCustomError(blocXTacToe, "InvalidMove");
+    });
+
+    it("Should revert if trying to play on occupied cell", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 3));
+
+      // Position 0 is already occupied by X from createGame
+      await expect(blocXTacToe.connect(player1).play(0, 0))
+        .to.be.revertedWithCustomError(blocXTacToe, "Occupied");
+    });
+
+    it("Should revert if not player's turn", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 3));
+
+      // After setup: X at 0, O at 1, now it's X's turn
+      // Player2 (O) tries to play out of turn
+      await expect(blocXTacToe.connect(player2).play(0, 2))
+        .to.be.revertedWithCustomError(blocXTacToe, "NotTurn");
+    });
+  });
+
 });
