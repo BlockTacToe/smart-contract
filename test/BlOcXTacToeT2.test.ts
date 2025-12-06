@@ -89,5 +89,141 @@ describe("BlOcXTacToe - Additional Test Coverage (T2)", function () {
     });
   });
 
+  // ============ TEST 2: Admin Functions - setSupportedToken() ============
+
+  describe("Admin Functions - setSupportedToken()", function () {
+    it("Should allow admin to add new token", async function () {
+      const { blocXTacToe, owner, admin } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(owner).addAdmin(admin.address);
+      
+      // Create a mock token address
+      const mockToken = ethers.Wallet.createRandom().address;
+      const tokenName = "USDC";
+
+      await expect(blocXTacToe.connect(admin).setSupportedToken(mockToken, true, tokenName))
+        .to.emit(blocXTacToe, "TokenSupported")
+        .withArgs(mockToken, true);
+
+      expect(await blocXTacToe.supportedTokens(mockToken)).to.be.true;
+      expect(await blocXTacToe.isTokenSupported(mockToken)).to.be.true;
+    });
+
+    it("Should store token name when adding", async function () {
+      const { blocXTacToe, owner, admin } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(owner).addAdmin(admin.address);
+      
+      const mockToken = ethers.Wallet.createRandom().address;
+      const tokenName = "DAI";
+
+      await blocXTacToe.connect(admin).setSupportedToken(mockToken, true, tokenName);
+
+      expect(await blocXTacToe.getTokenName(mockToken)).to.equal(tokenName);
+    });
+
+    it("Should emit TokenSupported event", async function () {
+      const { blocXTacToe, owner, admin } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(owner).addAdmin(admin.address);
+      
+      const mockToken = ethers.Wallet.createRandom().address;
+      const tokenName = "WETH";
+
+      await expect(blocXTacToe.connect(admin).setSupportedToken(mockToken, true, tokenName))
+        .to.emit(blocXTacToe, "TokenSupported")
+        .withArgs(mockToken, true);
+    });
+
+    it("Should update supportedTokensList correctly when adding", async function () {
+      const { blocXTacToe, owner, admin } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(owner).addAdmin(admin.address);
+      
+      const mockToken = ethers.Wallet.createRandom().address;
+      const tokenName = "LINK";
+
+      const tokensBefore = await blocXTacToe.getSupportedTokens();
+      
+      await blocXTacToe.connect(admin).setSupportedToken(mockToken, true, tokenName);
+
+      const tokensAfter = await blocXTacToe.getSupportedTokens();
+      expect(tokensAfter.length).to.equal(tokensBefore.length + 1);
+      expect(tokensAfter).to.include(mockToken);
+    });
+
+    it("Should allow admin to remove token", async function () {
+      const { blocXTacToe, owner, admin } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(owner).addAdmin(admin.address);
+      
+      const mockToken = ethers.Wallet.createRandom().address;
+      const tokenName = "USDT";
+
+      // First add the token
+      await blocXTacToe.connect(admin).setSupportedToken(mockToken, true, tokenName);
+      expect(await blocXTacToe.supportedTokens(mockToken)).to.be.true;
+
+      // Then remove it
+      await expect(blocXTacToe.connect(admin).setSupportedToken(mockToken, false, ""))
+        .to.emit(blocXTacToe, "TokenSupported")
+        .withArgs(mockToken, false);
+
+      expect(await blocXTacToe.supportedTokens(mockToken)).to.be.false;
+      expect(await blocXTacToe.isTokenSupported(mockToken)).to.be.false;
+    });
+
+    it("Should handle duplicate token additions", async function () {
+      const { blocXTacToe, owner, admin } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(owner).addAdmin(admin.address);
+      
+      const mockToken = ethers.Wallet.createRandom().address;
+      const tokenName = "MATIC";
+
+      // Add token first time
+      await blocXTacToe.connect(admin).setSupportedToken(mockToken, true, tokenName);
+      const tokensAfterFirst = await blocXTacToe.getSupportedTokens();
+
+      // Try to add same token again (should not duplicate in list)
+      await blocXTacToe.connect(admin).setSupportedToken(mockToken, true, tokenName);
+      const tokensAfterSecond = await blocXTacToe.getSupportedTokens();
+
+      // Should have same length (no duplicate added)
+      expect(tokensAfterSecond.length).to.equal(tokensAfterFirst.length);
+      expect(await blocXTacToe.supportedTokens(mockToken)).to.be.true;
+    });
+
+    it("Should revert if non-admin tries to set token", async function () {
+      const { blocXTacToe, player1 } = await loadFixture(deployBlOcXTacToeFixture);
+      
+      const mockToken = ethers.Wallet.createRandom().address;
+
+      await expect(
+        blocXTacToe.connect(player1).setSupportedToken(mockToken, true, "TOKEN")
+      ).to.be.revertedWithCustomError(blocXTacToe, "NotAdmin");
+    });
+
+    it("Should remove token from supportedTokensList when disabled", async function () {
+      const { blocXTacToe, owner, admin } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(owner).addAdmin(admin.address);
+      
+      const mockToken = ethers.Wallet.createRandom().address;
+      const tokenName = "AAVE";
+
+      // Add token
+      await blocXTacToe.connect(admin).setSupportedToken(mockToken, true, tokenName);
+      const tokensAfterAdd = await blocXTacToe.getSupportedTokens();
+      expect(tokensAfterAdd).to.include(mockToken);
+
+      // Remove token
+      await blocXTacToe.connect(admin).setSupportedToken(mockToken, false, "");
+      const tokensAfterRemove = await blocXTacToe.getSupportedTokens();
+      expect(tokensAfterRemove).to.not.include(mockToken);
+      expect(tokensAfterRemove.length).to.equal(tokensAfterAdd.length - 1);
+    });
+  });
+
 });
 
