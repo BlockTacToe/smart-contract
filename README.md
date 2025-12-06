@@ -149,6 +149,47 @@ npm test
 npm run deploy:sepolia
 ```
 
+## 📏 Contract Size Analysis
+
+✅ **Hardhat Contract Size Command**
+
+Hardhat doesn't check contract size with compile. You need the `hardhat-contract-sizer` plugin.
+
+### 1️⃣ Install Plugin (if you haven't):
+
+```bash
+npm install --save-dev hardhat-contract-sizer
+```
+
+### 2️⃣ Add to `hardhat.config.ts`:
+
+```typescript
+require("hardhat-contract-sizer");
+
+// In your HardhatUserConfig:
+contractSizer: {
+  alphaSort: true,
+  runOnCompile: true,
+  disambiguatePaths: false,
+},
+```
+
+### 3️⃣ Check Contract Size:
+
+```bash
+npx hardhat size-contracts
+```
+
+### 📌 Alternative (runs automatically on compile):
+
+If `runOnCompile: true` is enabled, then just:
+
+```bash
+npx hardhat compile
+```
+
+It will print contract sizes after compiling automatically.
+
 ## 🌐 Network Configuration
 
 ### Base Sepolia Testnet

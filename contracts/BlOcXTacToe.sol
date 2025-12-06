@@ -127,6 +127,7 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     error Claimed();
     error NotWinner();
     error InvalidSize();
+    error NotFinished();
     
     // Events
     event GameCreated(uint256 indexed gameId, address indexed playerOne, uint256 betAmount, uint8 moveIndex, address tokenAddress);
@@ -398,14 +399,20 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
         }
         
         _updatePlayerStats(game.playerOne, game.playerTwo, winner, false);
+        _updateLeaderboard(winner);
         emit GameForfeited(gameId, winner);
     }
     
     function claimReward(uint256 gameId) external nonReentrant validGame(gameId) {
+        Game storage game = games[gameId];
+        
+        // Ensure game is actually finished before allowing claim
+        if (game.status != GameStatus.Ended && game.status != GameStatus.Forfeited) {
+            revert NotFinished();
+        }
+        
         if (rewardClaimed[gameId]) revert Claimed();
         if (claimableRewards[gameId] == 0) revert NoReward();
-        
-        Game storage game = games[gameId];
         if (game.winner != msg.sender) revert NotWinner();
         
         uint256 amount = claimableRewards[gameId];
@@ -759,5 +766,34 @@ contract BlOcXTacToe is ReentrancyGuard, Pausable, Ownable {
     
     function unpause() external onlyOwner {
         _unpause();
+    }
+    
+    // ============ TEMPORARY TEST COUNTER ============
+    // Temporary test counter for frontend testing
+    uint256 private testCounter;
+    
+    /**
+     * @notice Increment the test counter by 1
+     * @dev Temporary function for testing purposes
+     */
+    function incrementCounter() external {
+        testCounter++;
+    }
+    
+    /**
+     * @notice Decrement the test counter by 1
+     * @dev Temporary function for testing purposes
+     */
+    function decrementCounter() external {
+        testCounter--;
+    }
+    
+    /**
+     * @notice Get the current value of the test counter
+     * @return The current counter value
+     * @dev Temporary function for testing purposes
+     */
+    function getCounter() external view returns (uint256) {
+        return testCounter;
     }
 }

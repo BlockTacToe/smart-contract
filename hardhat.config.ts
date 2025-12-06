@@ -1,5 +1,6 @@
-
 import * as dotenv from "dotenv";
+import "hardhat-contract-sizer";
+
 dotenv.config();
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-ethers";
@@ -11,13 +12,16 @@ import "@nomicfoundation/hardhat-verify";
 
 // If not set, it uses ours Alchemy's default API key.
 // You can get your own at https://dashboard.alchemyapi.io
-const providerApiKey = process.env.ALCHEMY_API_KEY || "oKxs-03sij-U_N0iOlrSsZFr29-IqbuF";
+const providerApiKey =
+  process.env.ALCHEMY_API_KEY || "oKxs-03sij-U_N0iOlrSsZFr29-IqbuF";
 // If not set, it uses the hardhat account 0 private key.
 // You can generate a random account with `yarn generate` or `yarn account:import` to import your existing PK
 const deployerPrivateKey =
-  process.env.ACCOUNT_PRIVATE_KEY ?? "0x0000000000000000000000000000000000000000000000000000000000000000";
+  process.env.ACCOUNT_PRIVATE_KEY ??
+  "0x0000000000000000000000000000000000000000000000000000000000000000";
 // If not set, it uses our block explorers default API keys.
-const etherscanApiKey = process.env.ETHERSCAN_V2_API_KEY || "DNXJA8RX2Q3VZ4URQIWP7Z68CJXQZSC6AW";
+const etherscanApiKey =
+  process.env.ETHERSCAN_V2_API_KEY || "DNXJA8RX2Q3VZ4URQIWP7Z68CJXQZSC6AW";
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -34,6 +38,13 @@ const config: HardhatUserConfig = {
       },
     ],
   },
+
+  contractSizer: {
+    alphaSort: true,
+    runOnCompile: true,
+    disambiguatePaths: false,
+  },
+
   defaultNetwork: "base",
   // defaultNetwork: "baseSepolia", // Testnet - commented for mainnet deployment
   networks: {
