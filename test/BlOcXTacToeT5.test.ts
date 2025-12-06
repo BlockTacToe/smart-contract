@@ -344,5 +344,126 @@ describe("BlOcXTacToe - Payment Handling, Platform Fee & Counter Tests (T5)", fu
       expect(claimableReward + fee).to.equal(totalPayout);
     });
   });
+
+  // ============ TEST 4: Temporary Test Counter ============
+  
+  describe("Temporary Test Counter", function () {
+    async function deployFixture() {
+      const { blocXTacToe, randomUser } = await loadFixture(deployBlOcXTacToeFixture);
+      return { blocXTacToe, randomUser };
+    }
+
+    it("Should return 0 initially for getCounter", async function () {
+      const { blocXTacToe } = await loadFixture(deployFixture);
+      
+      const counter = await blocXTacToe.getCounter();
+      expect(counter).to.equal(0n);
+    });
+
+    it("Should increment counter by 1", async function () {
+      const { blocXTacToe, randomUser } = await loadFixture(deployFixture);
+      
+      // Counter should start at 0
+      expect(await blocXTacToe.getCounter()).to.equal(0n);
+      
+      // Increment once
+      await blocXTacToe.connect(randomUser).incrementCounter();
+      expect(await blocXTacToe.getCounter()).to.equal(1n);
+      
+      // Increment again
+      await blocXTacToe.connect(randomUser).incrementCounter();
+      expect(await blocXTacToe.getCounter()).to.equal(2n);
+    });
+
+    it("Should allow anyone to increment counter", async function () {
+      const { blocXTacToe, randomUser, player1, player2 } = await loadFixture(deployBlOcXTacToeFixture);
+      
+      // Random user increments
+      await blocXTacToe.connect(randomUser).incrementCounter();
+      expect(await blocXTacToe.getCounter()).to.equal(1n);
+      
+      // Player1 increments
+      await blocXTacToe.connect(player1).incrementCounter();
+      expect(await blocXTacToe.getCounter()).to.equal(2n);
+      
+      // Player2 increments
+      await blocXTacToe.connect(player2).incrementCounter();
+      expect(await blocXTacToe.getCounter()).to.equal(3n);
+    });
+
+    it("Should decrement counter by 1", async function () {
+      const { blocXTacToe, randomUser } = await loadFixture(deployFixture);
+      
+      // Increment to 3 first
+      await blocXTacToe.connect(randomUser).incrementCounter();
+      await blocXTacToe.connect(randomUser).incrementCounter();
+      await blocXTacToe.connect(randomUser).incrementCounter();
+      expect(await blocXTacToe.getCounter()).to.equal(3n);
+      
+      // Decrement once
+      await blocXTacToe.connect(randomUser).decrementCounter();
+      expect(await blocXTacToe.getCounter()).to.equal(2n);
+      
+      // Decrement again
+      await blocXTacToe.connect(randomUser).decrementCounter();
+      expect(await blocXTacToe.getCounter()).to.equal(1n);
+    });
+
+    it("Should revert when decrementing from 0 (prevents underflow)", async function () {
+      const { blocXTacToe, randomUser } = await loadFixture(deployFixture);
+      
+      // Counter starts at 0
+      expect(await blocXTacToe.getCounter()).to.equal(0n);
+      
+      // Decrement from 0 - should revert with underflow panic (Solidity 0.8+ protection)
+      await expect(
+        blocXTacToe.connect(randomUser).decrementCounter()
+      ).to.be.revertedWithPanic(0x11); // Arithmetic operation overflowed
+    });
+
+    it("Should allow anyone to decrement counter", async function () {
+      const { blocXTacToe, randomUser, player1, player2 } = await loadFixture(deployBlOcXTacToeFixture);
+      
+      // Increment to 3 first
+      await blocXTacToe.connect(randomUser).incrementCounter();
+      await blocXTacToe.connect(randomUser).incrementCounter();
+      await blocXTacToe.connect(randomUser).incrementCounter();
+      expect(await blocXTacToe.getCounter()).to.equal(3n);
+      
+      // Random user decrements
+      await blocXTacToe.connect(randomUser).decrementCounter();
+      expect(await blocXTacToe.getCounter()).to.equal(2n);
+      
+      // Player1 decrements
+      await blocXTacToe.connect(player1).decrementCounter();
+      expect(await blocXTacToe.getCounter()).to.equal(1n);
+      
+      // Player2 decrements
+      await blocXTacToe.connect(player2).decrementCounter();
+      expect(await blocXTacToe.getCounter()).to.equal(0n);
+    });
+
+    it("Should return current counter value correctly", async function () {
+      const { blocXTacToe, randomUser } = await loadFixture(deployFixture);
+      
+      // Start at 0
+      expect(await blocXTacToe.getCounter()).to.equal(0n);
+      
+      // Increment multiple times
+      for (let i = 0; i < 5; i++) {
+        await blocXTacToe.connect(randomUser).incrementCounter();
+        expect(await blocXTacToe.getCounter()).to.equal(BigInt(i + 1));
+      }
+      
+      // Decrement a few times
+      for (let i = 0; i < 2; i++) {
+        await blocXTacToe.connect(randomUser).decrementCounter();
+        expect(await blocXTacToe.getCounter()).to.equal(BigInt(5 - (i + 1)));
+      }
+      
+      // Final value should be 3
+      expect(await blocXTacToe.getCounter()).to.equal(3n);
+    });
+  });
 });
 
