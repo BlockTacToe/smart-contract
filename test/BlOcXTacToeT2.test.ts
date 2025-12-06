@@ -225,5 +225,55 @@ describe("BlOcXTacToe - Additional Test Coverage (T2)", function () {
     });
   });
 
+  // ============ TEST 3: Player Registration - getPlayerByUsername() ============
+
+  describe("Player Registration - getPlayerByUsername()", function () {
+    it("Should return correct player data by username", async function () {
+      const { blocXTacToe, player1 } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(player1).registerPlayer("Alice");
+
+      const [address, player] = await blocXTacToe.getPlayerByUsername("Alice");
+
+      expect(address).to.equal(player1.address);
+      // Player struct is returned as array: [username, wins, losses, draws, totalGames, rating, registered]
+      expect(player[0]).to.equal("Alice"); // username
+      expect(player[6]).to.be.true; // registered
+      expect(player[5]).to.equal(100n); // rating
+    });
+
+    it("Should handle non-existent username", async function () {
+      const { blocXTacToe } = await loadFixture(deployBlOcXTacToeFixture);
+
+      // Non-existent username should return zero address
+      const [address, player] = await blocXTacToe.getPlayerByUsername("NonExistentUser");
+
+      expect(address).to.equal(ethers.ZeroAddress);
+      // Player struct will have default values
+    });
+
+    it("Should return address and Player struct", async function () {
+      const { blocXTacToe, player2 } = await loadFixture(deployBlOcXTacToeFixture);
+
+      const username = "Bob";
+      await blocXTacToe.connect(player2).registerPlayer(username);
+
+      const [address, player] = await blocXTacToe.getPlayerByUsername(username);
+
+      expect(address).to.be.a("string");
+      expect(address).to.equal(player2.address);
+      
+      // Player struct is returned as array: [username, wins, losses, draws, totalGames, rating, registered]
+      expect(player).to.be.an("array");
+      expect(player[0]).to.equal(username); // username
+      expect(player[1]).to.equal(0n); // wins
+      expect(player[2]).to.equal(0n); // losses
+      expect(player[3]).to.equal(0n); // draws
+      expect(player[4]).to.equal(0n); // totalGames
+      expect(player[5]).to.equal(100n); // rating
+      expect(player[6]).to.be.true; // registered
+    });
+  });
+
 });
 
