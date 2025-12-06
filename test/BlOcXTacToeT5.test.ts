@@ -465,5 +465,244 @@ describe("BlOcXTacToe - Payment Handling, Platform Fee & Counter Tests (T5)", fu
       expect(await blocXTacToe.getCounter()).to.equal(3n);
     });
   });
+
+  // ============ TEST 5: Winner Detection - Edge Cases ============
+  
+  describe("Winner Detection - Edge Cases", function () {
+    async function setupGameFixture(boardSize: number = 3) {
+      const { blocXTacToe, player1, player2 } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      
+      const betAmount = ethers.parseEther("0.01");
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, boardSize, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, Math.floor((boardSize * boardSize) / 2), { value: betAmount });
+      
+      return { blocXTacToe, player1, player2, betAmount };
+    }
+
+    it("Should detect vertical win (3 in a column) on 3x3 board", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 3));
+      
+      // 3x3 board: column 0 has positions 0, 3, 6
+      // X at 0, O at 4 (from setup)
+      // X plays at 3 (column 0, row 1)
+      await blocXTacToe.connect(player1).play(0, 3);
+      // O plays at 5
+      await blocXTacToe.connect(player2).play(0, 5);
+      // X plays at 6 (column 0, row 2) - vertical win!
+      await blocXTacToe.connect(player1).play(0, 6);
+      
+      const game = await blocXTacToe.getGame(0);
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect main diagonal win (top-left to bottom-right) on 3x3 board", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 3));
+      
+      // 3x3 board: main diagonal is 0, 4, 8
+      // From setup: X at 0, O at 4 (center)
+      // Since O already took center (4), we need a different diagonal
+      // Let's use a different approach - X at 0, we need to get X at another diagonal position
+      // Actually, let's create a fresh game for this test with a different initial move
+      
+      // Create new game with X at 0, O at 1 (not center)
+      const betAmount = ethers.parseEther("0.01");
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(1, 1, { value: betAmount }); // O at 1, not 4
+      
+      // Now: X at 0, O at 1
+      // X plays at 4 (center)
+      await blocXTacToe.connect(player1).play(1, 4);
+      // O plays at 2
+      await blocXTacToe.connect(player2).play(1, 2);
+      // X plays at 8 - main diagonal win! (0, 4, 8)
+      await blocXTacToe.connect(player1).play(1, 8);
+      
+      const game = await blocXTacToe.getGame(1);
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect anti-diagonal win (top-right to bottom-left) on 3x3 board", async function () {
+      const { blocXTacToe, player1, player2, betAmount } = await loadFixture(setupGameFixture.bind(null, 3));
+      
+      // 3x3 board: anti-diagonal is 2, 4, 6
+      // From setup: X at 0, O at 4 (center)
+      // Create new game: X at 2, O at 1
+      await blocXTacToe.connect(player1).createGame(betAmount, 2, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(1, 1, { value: betAmount }); // O at 1
+      
+      // Now: X at 2, O at 1
+      // X plays at 4 (center) - now X at 2 and 4
+      await blocXTacToe.connect(player1).play(1, 4);
+      // O plays at 0 (blocks)
+      await blocXTacToe.connect(player2).play(1, 0);
+      // X plays at 6 - anti-diagonal win! (2, 4, 6)
+      await blocXTacToe.connect(player1).play(1, 6);
+      
+      const game = await blocXTacToe.getGame(1);
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect draw game (all cells filled, no winner)", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameFixture.bind(null, 3));
+      
+      // Create a draw: fill all cells without winner
+      // X at 0, O at 4 (from setup)
+      await blocXTacToe.connect(player1).play(0, 1); // X at 1
+      await blocXTacToe.connect(player2).play(0, 3); // O at 3
+      await blocXTacToe.connect(player1).play(0, 5); // X at 5
+      await blocXTacToe.connect(player2).play(0, 2); // O at 2
+      await blocXTacToe.connect(player1).play(0, 6); // X at 6
+      await blocXTacToe.connect(player2).play(0, 7); // O at 7
+      await blocXTacToe.connect(player1).play(0, 8); // X at 8 - draw!
+      
+      const game = await blocXTacToe.getGame(0);
+      expect(game.status).to.equal(1); // Ended
+      expect(game.winner).to.equal(ethers.ZeroAddress); // No winner
+    });
+
+    it("Should detect Player 2 (O) winning scenarios", async function () {
+      const { blocXTacToe, player1, player2, betAmount } = await loadFixture(setupGameFixture.bind(null, 3));
+      
+      // 3x3 board: Player2 (O) wins horizontally in row 1 (3, 4, 5)
+      // Create new game: X at 3, O at 0 (so O can win)
+      await blocXTacToe.connect(player1).createGame(betAmount, 3, ethers.ZeroAddress, 3, { value: betAmount }); // X at 3
+      await blocXTacToe.connect(player2).joinGame(1, 0, { value: betAmount }); // O at 0
+      
+      // Now: X at 3, O at 0
+      // X plays at 6
+      await blocXTacToe.connect(player1).play(1, 6);
+      // O plays at 4 (row 1, col 1) - now O at 0 and 4, but we want O in row 1
+      // Actually, let's set it up differently: O needs to win in row 1 (3, 4, 5)
+      // X at 3 (row 1, col 0), O at 4 (row 1, col 1) - but X already at 3
+      // Better: Start with X at different position
+      
+      // Create new game: X at 6, O at 3
+      await blocXTacToe.connect(player1).createGame(betAmount, 6, ethers.ZeroAddress, 3, { value: betAmount }); // X at 6
+      await blocXTacToe.connect(player2).joinGame(2, 3, { value: betAmount }); // O at 3 (row 1, col 0)
+      
+      // Now: X at 6, O at 3
+      // X plays at 0
+      await blocXTacToe.connect(player1).play(2, 0);
+      // O plays at 4 (row 1, col 1) - now O at 3 and 4
+      await blocXTacToe.connect(player2).play(2, 4);
+      // X plays at 1
+      await blocXTacToe.connect(player1).play(2, 1);
+      // O plays at 5 (row 1, col 2) - horizontal win for O! (3, 4, 5)
+      await blocXTacToe.connect(player2).play(2, 5);
+      
+      const game = await blocXTacToe.getGame(2);
+      expect(game.winner).to.equal(player2.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect win on 5x5 board (vertical win)", async function () {
+      const { blocXTacToe, player1, player2, betAmount } = await loadFixture(setupGameFixture.bind(null, 5));
+      
+      // 5x5 board: column 2 has positions 2, 7, 12
+      // Create new game: X at 2, O at 3
+      await blocXTacToe.connect(player1).createGame(betAmount, 2, ethers.ZeroAddress, 5, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(1, 3, { value: betAmount }); // O at 3
+      
+      // Now: X at 2, O at 3
+      // X plays at 7 (column 2, row 1) - now X at 2 and 7
+      await blocXTacToe.connect(player1).play(1, 7);
+      // O plays at 4
+      await blocXTacToe.connect(player2).play(1, 4);
+      // X plays at 12 (column 2, row 2) - vertical win! (2, 7, 12)
+      await blocXTacToe.connect(player1).play(1, 12);
+      
+      const game = await blocXTacToe.getGame(1);
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect win on 7x7 board (horizontal win)", async function () {
+      const { blocXTacToe, player1, player2, betAmount } = await loadFixture(setupGameFixture.bind(null, 7));
+      
+      // 7x7 board: row 3 has positions 21, 22, 23
+      // Create new game: X at 21, O at 25
+      await blocXTacToe.connect(player1).createGame(betAmount, 21, ethers.ZeroAddress, 7, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(1, 25, { value: betAmount }); // O at 25
+      
+      // Now: X at 21, O at 25
+      // X plays at 22 (row 3, col 1) - now X at 21 and 22
+      await blocXTacToe.connect(player1).play(1, 22);
+      // O plays at 26
+      await blocXTacToe.connect(player2).play(1, 26);
+      // X plays at 23 (row 3, col 2) - horizontal win! (21, 22, 23)
+      await blocXTacToe.connect(player1).play(1, 23);
+      
+      const game = await blocXTacToe.getGame(1);
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect first win when multiple wins are possible (horizontal detected first)", async function () {
+      const { blocXTacToe, player1, player2, betAmount } = await loadFixture(setupGameFixture.bind(null, 3));
+      
+      // Setup a scenario where a single move could create multiple wins
+      // Create a position where X can win both horizontally and vertically
+      // 3x3 board layout after setup moves:
+      // X O X  (row 0: X at 0 and 2, O at 1)
+      // X _ _  (row 1: X at 3)
+      // _ _ _  (row 2: empty)
+      
+      // Create new game: X at 0
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(1, 1, { value: betAmount }); // O at 1
+      
+      // Now: X at 0, O at 1
+      // X plays at 2 (completes row 0: X at 0, 2)
+      await blocXTacToe.connect(player1).play(1, 2);
+      // O plays at 4
+      await blocXTacToe.connect(player2).play(1, 4);
+      // X plays at 3 (row 1, col 0) - now X at 0, 2, 3
+      await blocXTacToe.connect(player1).play(1, 3);
+      // O plays at 5
+      await blocXTacToe.connect(player2).play(1, 5);
+      // X plays at 6 - this completes vertical (0, 3, 6) but also row 2 starts
+      // Actually, let's create a clearer scenario: X needs to win both ways
+      // X at 0, 2 (row 0), X at 3 (row 1), so X needs at 6 for vertical (0,3,6)
+      // But also X at 0, 2 means horizontal row 0 needs X at 1, but O is there
+      
+      // Better: X at 0, X at 3, X at 6 (vertical col 0)
+      // And X at 0, X at 1, X at 2 (horizontal row 0) - but O at 1 blocks
+      // Let's test with what we have: X plays at 6 completes vertical (0, 3, 6)
+      await blocXTacToe.connect(player1).play(1, 6);
+      
+      const game = await blocXTacToe.getGame(1);
+      // Vertical win should be detected (0, 3, 6)
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1); // Ended
+    });
+
+    it("Should detect first win when multiple wins are possible (diagonal detected)", async function () {
+      const { blocXTacToe, player1, player2, betAmount } = await loadFixture(setupGameFixture.bind(null, 3));
+      
+      // Create a scenario where a move completes a diagonal win
+      // 3x3 board: main diagonal is 0, 4, 8
+      // Create new game: X at 0, O at 1
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(1, 1, { value: betAmount }); // O at 1
+      
+      // Now: X at 0, O at 1
+      // X plays at 4 (center) - now X at 0 and 4 (diagonal started)
+      await blocXTacToe.connect(player1).play(1, 4);
+      // O plays at 2
+      await blocXTacToe.connect(player2).play(1, 2);
+      // X plays at 8 - completes main diagonal (0, 4, 8)
+      await blocXTacToe.connect(player1).play(1, 8);
+      
+      const game = await blocXTacToe.getGame(1);
+      // Diagonal win should be detected
+      expect(game.winner).to.equal(player1.address);
+      expect(game.status).to.equal(1);
+    });
+  });
 });
 
