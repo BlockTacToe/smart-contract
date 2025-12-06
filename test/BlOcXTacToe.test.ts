@@ -474,9 +474,9 @@ describe("BlOcXTacToe - Comprehensive Test Suite", function () {
       await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
       await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
 
-      // Game is active, no reward yet
+      // Game is active, no reward yet - should revert with NotFinished due to security check
       await expect(blocXTacToe.connect(player1).claimReward(0))
-        .to.be.revertedWithCustomError(blocXTacToe, "NoReward");
+        .to.be.revertedWithCustomError(blocXTacToe, "NotFinished");
     });
 
     it("Should revert if trying to claim on active game", async function () {
