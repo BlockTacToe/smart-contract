@@ -454,5 +454,116 @@ describe("BlOcXTacToe - Rating System, Player Stats, Pausable & Reentrancy Tests
       expect(player2Data.wins).to.equal(0n);
     });
   });
+
+  // ============ TEST 3: Pausable Functionality ============
+  
+  describe("Pausable Functionality", function () {
+    async function setupPlayersFixture() {
+      const { blocXTacToe, owner, player1, player2 } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      
+      return { blocXTacToe, owner, player1, player2 };
+    }
+
+    it("Cannot create game when paused", async function () {
+      const { blocXTacToe, owner, player1 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Pause the contract
+      await blocXTacToe.connect(owner).pause();
+      
+      // Try to create game - should revert
+      await expect(
+        blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "EnforcedPause");
+    });
+
+    it("Cannot join game when paused", async function () {
+      const { blocXTacToe, owner, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Create game before pausing
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      
+      // Pause the contract
+      await blocXTacToe.connect(owner).pause();
+      
+      // Try to join game - should revert
+      await expect(
+        blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "EnforcedPause");
+    });
+
+    it("Cannot play when paused", async function () {
+      const { blocXTacToe, owner, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Create and join game before pausing
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
+      
+      // Pause the contract
+      await blocXTacToe.connect(owner).pause();
+      
+      // Try to play - should revert
+      await expect(
+        blocXTacToe.connect(player1).play(0, 3)
+      ).to.be.revertedWithCustomError(blocXTacToe, "EnforcedPause");
+    });
+
+    it("Cannot create challenge when paused", async function () {
+      const { blocXTacToe, owner, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Pause the contract
+      await blocXTacToe.connect(owner).pause();
+      
+      // Try to create challenge - should revert
+      await expect(
+        blocXTacToe.connect(player1).createChallenge(player2.address, betAmount, ethers.ZeroAddress, 3, { value: betAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "EnforcedPause");
+    });
+
+    it("Cannot accept challenge when paused", async function () {
+      const { blocXTacToe, owner, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Create challenge before pausing
+      await blocXTacToe.connect(player1).createChallenge(player2.address, betAmount, ethers.ZeroAddress, 3, { value: betAmount });
+      
+      // Pause the contract
+      await blocXTacToe.connect(owner).pause();
+      
+      // Try to accept challenge - should revert
+      await expect(
+        blocXTacToe.connect(player2).acceptChallenge(0, 5, { value: betAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "EnforcedPause");
+    });
+
+    it("Admin functions still work when paused", async function () {
+      const { blocXTacToe, owner } = await loadFixture(setupPlayersFixture);
+      
+      // Pause the contract
+      await blocXTacToe.connect(owner).pause();
+      
+      // Admin functions should still work
+      await blocXTacToe.connect(owner).addAdmin(owner.address);
+      await blocXTacToe.connect(owner).setKFactor(150);
+      await blocXTacToe.connect(owner).setPlatformFee(100);
+      
+      // Unpause should work
+      await blocXTacToe.connect(owner).unpause();
+      
+      // Verify unpaused
+      const paused = await blocXTacToe.paused();
+      expect(paused).to.be.false;
+    });
+  });
 });
 
