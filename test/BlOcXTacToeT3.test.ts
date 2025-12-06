@@ -367,5 +367,77 @@ describe("BlOcXTacToe - Claim Reward & Challenge System Tests (T3)", function ()
       expect(await blocXTacToe.gameBoards(0, 12)).to.equal(1); // Challenger's first move
     });
   });
+
+  // ============ TEST 4: Challenge System - getPlayerChallenges() ============
+  
+  describe("Challenge System - getPlayerChallenges()", function () {
+    async function setupPlayersFixture() {
+      const { blocXTacToe, owner, player1, player2, player3 } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      await blocXTacToe.connect(player3).registerPlayer("player3");
+      
+      return { blocXTacToe, player1, player2, player3 };
+    }
+
+    it("Should return all challenges for a player (sent and received)", async function () {
+      const { blocXTacToe, player1, player2, player3 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.1");
+      
+      // Player1 challenges player2 (challenge 0)
+      await blocXTacToe.connect(player1).createChallenge(player2.address, betAmount, ethers.ZeroAddress, 3, { value: betAmount });
+      
+      // Player3 challenges player1 (challenge 1)
+      await blocXTacToe.connect(player3).createChallenge(player1.address, betAmount, ethers.ZeroAddress, 3, { value: betAmount });
+      
+      // Player1 challenges player3 (challenge 2)
+      await blocXTacToe.connect(player1).createChallenge(player3.address, betAmount, ethers.ZeroAddress, 3, { value: betAmount });
+      
+      // Player1 should have challenges: 0 (sent), 1 (received), 2 (sent)
+      const player1Challenges = await blocXTacToe.getPlayerChallenges(player1.address);
+      expect(player1Challenges.length).to.equal(3);
+      expect(player1Challenges).to.include(0n);
+      expect(player1Challenges).to.include(1n);
+      expect(player1Challenges).to.include(2n);
+    });
+
+    it("Should return empty array if player has no challenges", async function () {
+      const { blocXTacToe, player1, player2, player3 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.1");
+      
+      // Player1 challenges player2
+      await blocXTacToe.connect(player1).createChallenge(player2.address, betAmount, ethers.ZeroAddress, 3, { value: betAmount });
+      
+      // Player3 should have no challenges
+      const player3Challenges = await blocXTacToe.getPlayerChallenges(player3.address);
+      expect(player3Challenges.length).to.equal(0);
+    });
+
+    it("Should include both sent and received challenges", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.1");
+      
+      // Player1 sends challenge to player2
+      await blocXTacToe.connect(player1).createChallenge(player2.address, betAmount, ethers.ZeroAddress, 3, { value: betAmount });
+      
+      // Player2 sends challenge to player1
+      await blocXTacToe.connect(player2).createChallenge(player1.address, betAmount, ethers.ZeroAddress, 3, { value: betAmount });
+      
+      // Player1 should have both: challenge 0 (sent) and challenge 1 (received)
+      const player1Challenges = await blocXTacToe.getPlayerChallenges(player1.address);
+      expect(player1Challenges.length).to.equal(2);
+      expect(player1Challenges).to.include(0n);
+      expect(player1Challenges).to.include(1n);
+      
+      // Player2 should have both: challenge 0 (received) and challenge 1 (sent)
+      const player2Challenges = await blocXTacToe.getPlayerChallenges(player2.address);
+      expect(player2Challenges.length).to.equal(2);
+      expect(player2Challenges).to.include(0n);
+      expect(player2Challenges).to.include(1n);
+    });
+  });
 });
 
