@@ -343,5 +343,238 @@ describe("BlOcXTacToe - Edge Cases & Boundary Tests", function () {
       expect(player2DataFinal.losses).to.equal(30n);
     });
   });
+
+  // ============ TEST 4: Leaderboard Edge Cases ============
+  
+  describe("Leaderboard Edge Cases", function () {
+    it("Should handle leaderboard with same ratings correctly", async function () {
+      const { blocXTacToe, owner, player1, player2, player3 } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      await blocXTacToe.connect(player3).registerPlayer("player3");
+      
+      await blocXTacToe.connect(owner).addAdmin(owner.address);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Create games where all players end up with same rating
+      // When players with equal ratings play, rating doesn't change
+      // So we can create multiple players with same rating on leaderboard
+      
+      // Player1 wins game (gets on leaderboard)
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
+      await blocXTacToe.connect(player1).play(0, 3);
+      await blocXTacToe.connect(player2).play(0, 4);
+      await blocXTacToe.connect(player1).play(0, 6);
+      
+      // Player2 wins game (gets on leaderboard)
+      await blocXTacToe.connect(player2).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player3).joinGame(1, 1, { value: betAmount });
+      await blocXTacToe.connect(player2).play(1, 3);
+      await blocXTacToe.connect(player3).play(1, 4);
+      await blocXTacToe.connect(player2).play(1, 6);
+      
+      // Player3 wins game (gets on leaderboard)
+      await blocXTacToe.connect(player3).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player1).joinGame(2, 1, { value: betAmount });
+      await blocXTacToe.connect(player3).play(2, 3);
+      await blocXTacToe.connect(player1).play(2, 4);
+      await blocXTacToe.connect(player3).play(2, 6);
+      
+      // All players should now be on leaderboard with same rating (100)
+      const leaderboard = await blocXTacToe.getLeaderboard(10);
+      expect(leaderboard.length).to.be.gte(3);
+      
+      // Verify all have same rating (or very close)
+      const ratings = leaderboard.map((entry: any) => entry.rating);
+      // All should have rating of 100 (initial rating, no change when equal ratings play)
+      for (let i = 0; i < Math.min(3, leaderboard.length); i++) {
+        expect(ratings[i]).to.equal(100n);
+      }
+      
+      // Leaderboard should include all three players
+      const playerAddresses = leaderboard.map((entry: any) => entry.player.toLowerCase());
+      expect(playerAddresses).to.include(player1.address.toLowerCase());
+      expect(playerAddresses).to.include(player2.address.toLowerCase());
+      expect(playerAddresses).to.include(player3.address.toLowerCase());
+    });
+  });
+
+  // ============ TEST 5: Token Edge Cases ============
+  
+  describe("Token Edge Cases", function () {
+    async function setupTokenFixture() {
+      const { blocXTacToe, owner, erc20Mock, erc20Address } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(owner).addAdmin(owner.address);
+      
+      return { blocXTacToe, owner, erc20Mock, erc20Address };
+    }
+
+    it("Should handle removing non-existent token gracefully", async function () {
+      const { blocXTacToe, owner } = await loadFixture(setupTokenFixture);
+      
+      const randomAddress = ethers.Wallet.createRandom().address;
+      
+      // Try to remove a token that was never added
+      // The contract may allow this (setting supported to false even if not in list)
+      // Or it may revert - let's test the actual behavior
+      const wasSupportedBefore = await blocXTacToe.supportedTokens(randomAddress);
+      expect(wasSupportedBefore).to.be.false;
+      
+      // Try to remove it - should either revert or succeed gracefully
+      // Check if it's in the supportedTokensList first
+      const supportedList = await blocXTacToe.getSupportedTokens();
+      const isInList = supportedList.includes(randomAddress);
+      
+      if (!isInList) {
+        // If not in list, removing it should either revert or do nothing
+        // Let's verify it doesn't break anything
+        await blocXTacToe.connect(owner).setSupportedToken(randomAddress, false, "");
+        
+        // Verify token is still not supported
+        const isSupportedAfter = await blocXTacToe.supportedTokens(randomAddress);
+        expect(isSupportedAfter).to.be.false;
+      }
+    });
+
+    it("Should allow updating token name", async function () {
+      const { blocXTacToe, owner, erc20Address } = await loadFixture(setupTokenFixture);
+      
+      // Add token with initial name
+      await blocXTacToe.connect(owner).setSupportedToken(erc20Address, true, "OriginalName");
+      
+      // Verify initial name
+      let tokenName = await blocXTacToe.getTokenName(erc20Address);
+      expect(tokenName).to.equal("OriginalName");
+      
+      // Update token name (by setting supported to true again with new name)
+      await blocXTacToe.connect(owner).setSupportedToken(erc20Address, true, "UpdatedName");
+      
+      // Verify updated name
+      tokenName = await blocXTacToe.getTokenName(erc20Address);
+      expect(tokenName).to.equal("UpdatedName");
+    });
+
+    it("Should allow empty token name", async function () {
+      const { blocXTacToe, owner, erc20Address } = await loadFixture(setupTokenFixture);
+      
+      // Add token with empty name
+      await blocXTacToe.connect(owner).setSupportedToken(erc20Address, true, "");
+      
+      // Verify empty name is stored
+      const tokenName = await blocXTacToe.getTokenName(erc20Address);
+      expect(tokenName).to.equal("");
+    });
+
+    it("Should handle very long token name", async function () {
+      const { blocXTacToe, owner, erc20Address } = await loadFixture(setupTokenFixture);
+      
+      // Create a very long token name (1000 characters)
+      const longName = "A".repeat(1000);
+      
+      // Add token with very long name
+      await blocXTacToe.connect(owner).setSupportedToken(erc20Address, true, longName);
+      
+      // Verify long name is stored correctly
+      const tokenName = await blocXTacToe.getTokenName(erc20Address);
+      expect(tokenName).to.equal(longName);
+      expect(tokenName.length).to.equal(1000);
+    });
+  });
+
+  // ============ TEST 6: Challenge Edge Cases ============
+  
+  describe("Challenge Edge Cases", function () {
+    async function setupChallengeFixture() {
+      const { blocXTacToe, player1, player2 } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      
+      return { blocXTacToe, player1, player2 };
+    }
+
+    it("Should allow multiple challenges between same players", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupChallengeFixture);
+      
+      const betAmount = ethers.parseEther("0.1");
+      
+      // Player1 challenges player2 multiple times
+      await blocXTacToe.connect(player1).createChallenge(player2.address, betAmount, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player1).createChallenge(player2.address, betAmount * 2n, ethers.ZeroAddress, 5, { value: betAmount * 2n });
+      await blocXTacToe.connect(player1).createChallenge(player2.address, betAmount / 2n, ethers.ZeroAddress, 7, { value: betAmount / 2n });
+      
+      // Verify all challenges were created
+      const player1Challenges = await blocXTacToe.getPlayerChallenges(player1.address);
+      expect(player1Challenges.length).to.equal(3);
+      expect(player1Challenges).to.include(0n);
+      expect(player1Challenges).to.include(1n);
+      expect(player1Challenges).to.include(2n);
+      
+      const player2Challenges = await blocXTacToe.getPlayerChallenges(player2.address);
+      expect(player2Challenges.length).to.equal(3);
+      
+      // Verify challenge details
+      const challenge0 = await blocXTacToe.getChallenge(0);
+      const challenge1 = await blocXTacToe.getChallenge(1);
+      const challenge2 = await blocXTacToe.getChallenge(2);
+      
+      expect(challenge0.challenger).to.equal(player1.address);
+      expect(challenge0.challenged).to.equal(player2.address);
+      expect(challenge0.betAmount).to.equal(betAmount);
+      expect(challenge0.boardSize).to.equal(3);
+      
+      expect(challenge1.betAmount).to.equal(betAmount * 2n);
+      expect(challenge1.boardSize).to.equal(5);
+      
+      expect(challenge2.betAmount).to.equal(betAmount / 2n);
+      expect(challenge2.boardSize).to.equal(7);
+    });
+
+    it("Should allow player2 to challenge player1 back", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupChallengeFixture);
+      
+      const betAmount = ethers.parseEther("0.1");
+      
+      // Player1 challenges player2
+      await blocXTacToe.connect(player1).createChallenge(player2.address, betAmount, ethers.ZeroAddress, 3, { value: betAmount });
+      
+      // Player2 can challenge player1 back
+      await blocXTacToe.connect(player2).createChallenge(player1.address, betAmount, ethers.ZeroAddress, 3, { value: betAmount });
+      
+      // Both players should have 2 challenges (sent and received)
+      const player1Challenges = await blocXTacToe.getPlayerChallenges(player1.address);
+      const player2Challenges = await blocXTacToe.getPlayerChallenges(player2.address);
+      
+      expect(player1Challenges.length).to.equal(2);
+      expect(player2Challenges.length).to.equal(2);
+    });
+
+    it("Should handle challenges with different parameters between same players", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupChallengeFixture);
+      
+      // Create challenges with different bet amounts, board sizes
+      await blocXTacToe.connect(player1).createChallenge(player2.address, ethers.parseEther("0.1"), ethers.ZeroAddress, 3, { value: ethers.parseEther("0.1") });
+      await blocXTacToe.connect(player1).createChallenge(player2.address, ethers.parseEther("0.2"), ethers.ZeroAddress, 5, { value: ethers.parseEther("0.2") });
+      await blocXTacToe.connect(player1).createChallenge(player2.address, ethers.parseEther("0.3"), ethers.ZeroAddress, 7, { value: ethers.parseEther("0.3") });
+      
+      // All should be separate challenges
+      const challenges = await blocXTacToe.getPlayerChallenges(player1.address);
+      expect(challenges.length).to.equal(3);
+      
+      // Verify they can be accepted independently
+      const challenge0 = await blocXTacToe.getChallenge(0);
+      expect(challenge0.accepted).to.be.false;
+      
+      // Accept first challenge
+      await blocXTacToe.connect(player2).acceptChallenge(0, 4, { value: ethers.parseEther("0.1") });
+      
+      // Other challenges should still be pending
+      const challenge1After = await blocXTacToe.getChallenge(1);
+      const challenge2After = await blocXTacToe.getChallenge(2);
+      expect(challenge1After.accepted).to.be.false;
+      expect(challenge2After.accepted).to.be.false;
+    });
+  });
 });
 
