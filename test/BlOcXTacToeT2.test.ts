@@ -3,7 +3,6 @@ import { ethers } from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { BlOcXTacToe, ERC20Mock } from "../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
-import { ERC20Mock } from "../typechain-types";
 
 describe("BlOcXTacToe - Additional Test Coverage (T2)", function () {
   // Deploy contract fixture
