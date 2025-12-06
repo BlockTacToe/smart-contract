@@ -46,7 +46,7 @@ describe("BlOcXTacToe - Rating System, Player Stats, Pausable & Reentrancy Tests
   
   describe("Rating System", function () {
     async function setupPlayersFixture() {
-      const { blocXTacToe, owner, player1, player2 } = await loadFixture(deployBlOcXTacToeFixture);
+      const { blocXTacToe, owner, player1, player2, player3 } = await loadFixture(deployBlOcXTacToeFixture);
       await blocXTacToe.connect(player1).registerPlayer("player1");
       await blocXTacToe.connect(player2).registerPlayer("player2");
       
@@ -54,7 +54,7 @@ describe("BlOcXTacToe - Rating System, Player Stats, Pausable & Reentrancy Tests
       await blocXTacToe.connect(owner).addAdmin(owner.address);
       await blocXTacToe.connect(owner).setKFactor(100);
       
-      return { blocXTacToe, owner, player1, player2 };
+      return { blocXTacToe, owner, player1, player2, player3 };
     }
 
     it("Should increase rating when higher rated player beats lower rated player", async function () {
