@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { loadFixture, time } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { BlOcXTacToe, ERC20Mock } from "../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 import { ERC20Mock } from "../typechain-types";
@@ -719,6 +719,160 @@ describe("BlOcXTacToe - Additional Test Coverage (T2)", function () {
       // Player2 (O) tries to play out of turn
       await expect(blocXTacToe.connect(player2).play(0, 2))
         .to.be.revertedWithCustomError(blocXTacToe, "NotTurn");
+    });
+  });
+
+  // ============ TEST 7: Game Functions - forfeitGame() Edge Cases ============
+
+  describe("Game Functions - forfeitGame() Edge Cases", function () {
+    async function setupGameForForfeit() {
+      const { blocXTacToe, owner, player1, player2, feeRecipient } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      
+      // Set platform fee to 1% (100 basis points) and recipient
+      await blocXTacToe.connect(owner).setPlatformFee(100);
+      await blocXTacToe.connect(owner).setPlatformFeeRecipient(feeRecipient.address);
+
+      const betAmount = ethers.parseEther("0.01");
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
+
+      return { blocXTacToe, owner, player1, player2, feeRecipient, betAmount };
+    }
+
+    it("Should deduct platform fee on forfeit", async function () {
+      const { blocXTacToe, player1, player2, betAmount } = await loadFixture(setupGameForForfeit);
+
+      // Get initial balances
+      const initialBalance = await ethers.provider.getBalance(player2.address);
+      
+      // Timeout the game (moveTimeout is 24 hours by default)
+      await time.increase(24 * 60 * 60 + 1);
+
+      // Forfeit game - player2 should win (it was player1's turn)
+      await blocXTacToe.connect(player1).forfeitGame(0);
+
+      // Calculate expected amounts
+      const totalPayout = betAmount * 2n;
+      const fee = (totalPayout * 100n) / 10000n; // 1% fee
+      const winnerPayout = totalPayout - fee;
+
+      // Check claimable reward
+      expect(await blocXTacToe.claimableRewards(0)).to.equal(winnerPayout);
+    });
+
+    it("Should transfer platform fee to fee recipient", async function () {
+      const { blocXTacToe, player1, feeRecipient, betAmount } = await loadFixture(setupGameForForfeit);
+
+      // Get initial balance of fee recipient
+      const initialBalance = await ethers.provider.getBalance(feeRecipient.address);
+
+      // Timeout the game
+      await time.increase(24 * 60 * 60 + 1);
+
+      // Forfeit game
+      await blocXTacToe.connect(player1).forfeitGame(0);
+
+      // Calculate expected fee
+      const totalPayout = betAmount * 2n;
+      const fee = (totalPayout * 100n) / 10000n; // 1% fee
+
+      // Check fee recipient received the fee
+      const finalBalance = await ethers.provider.getBalance(feeRecipient.address);
+      expect(finalBalance - initialBalance).to.equal(fee);
+    });
+
+    it("Should update leaderboard after forfeit", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameForForfeit);
+
+      // Timeout the game
+      await time.increase(24 * 60 * 60 + 1);
+
+      // Forfeit game - player2 should win
+      await blocXTacToe.connect(player1).forfeitGame(0);
+
+      // Check leaderboard - player2 should be on it
+      // Use getLeaderboard function with limit of 100
+      const leaderboard = await blocXTacToe.getLeaderboard(100);
+      expect(leaderboard.length).to.be.greaterThan(0);
+      
+      // Check if player2 is in the leaderboard
+      const player2Found = leaderboard.some((entry: any) => 
+        entry.player.toLowerCase() === player2.address.toLowerCase()
+      );
+      expect(player2Found).to.be.true;
+    });
+
+    it("Should update player stats after forfeit", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameForForfeit);
+
+      // Timeout the game
+      await time.increase(24 * 60 * 60 + 1);
+
+      // Forfeit game - player2 should win, player1 should lose
+      await blocXTacToe.connect(player1).forfeitGame(0);
+
+      // Check player stats
+      const player1Stats = await blocXTacToe.getPlayer(player1.address);
+      const player2Stats = await blocXTacToe.getPlayer(player2.address);
+
+      expect(player1Stats.losses).to.equal(1);
+      expect(player1Stats.totalGames).to.equal(1);
+      expect(player2Stats.wins).to.equal(1);
+      expect(player2Stats.totalGames).to.equal(1);
+    });
+
+    it("Should allow either player to call forfeit", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameForForfeit);
+
+      // Timeout the game
+      await time.increase(24 * 60 * 60 + 1);
+
+      // Either player should be able to forfeit
+      // Player1 forfeits
+      await expect(blocXTacToe.connect(player1).forfeitGame(0))
+        .to.emit(blocXTacToe, "GameForfeited");
+
+      const game = await blocXTacToe.getGame(0);
+      expect(game.status).to.equal(2); // Forfeited
+    });
+
+    it("Should determine winner correctly based on turn (player2 wins)", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameForForfeit);
+
+      // After joinGame, it's player1's turn
+      // So if we timeout now, player2 was the last to move, so player2 wins
+      await time.increase(24 * 60 * 60 + 1);
+
+      await blocXTacToe.connect(player1).forfeitGame(0);
+
+      const game = await blocXTacToe.getGame(0);
+      expect(game.winner).to.equal(player2.address);
+    });
+
+    it("Should determine winner correctly based on turn (player1 wins)", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupGameForForfeit);
+
+      // Make a move so it becomes player2's turn
+      await blocXTacToe.connect(player1).play(0, 2);
+      
+      // Now it's player2's turn, so if we timeout, player1 was last to move, so player1 wins
+      await time.increase(24 * 60 * 60 + 1);
+
+      await blocXTacToe.connect(player2).forfeitGame(0);
+
+      const game = await blocXTacToe.getGame(0);
+      expect(game.winner).to.equal(player1.address);
+    });
+
+    it("Should revert if trying to forfeit before timeout", async function () {
+      const { blocXTacToe, player1 } = await loadFixture(setupGameForForfeit);
+
+      // Try to forfeit immediately (before timeout)
+      await expect(blocXTacToe.connect(player1).forfeitGame(0))
+        .to.be.revertedWithCustomError(blocXTacToe, "Timeout");
     });
   });
 
