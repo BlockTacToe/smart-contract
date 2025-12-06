@@ -289,5 +289,170 @@ describe("BlOcXTacToe - Rating System, Player Stats, Pausable & Reentrancy Tests
       expect(ratingChangeK200).to.be.gte(ratingChangeK50);
     });
   });
+
+  // ============ TEST 2: Player Stats ============
+  
+  describe("Player Stats", function () {
+    async function setupPlayersFixture() {
+      const { blocXTacToe, player1, player2, player3 } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      await blocXTacToe.connect(player3).registerPlayer("player3");
+      
+      return { blocXTacToe, player1, player2, player3 };
+    }
+
+    it("Should increment draws for both players on draw game", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      // player1 creates game with move at 0 (X at 0)
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      // player2 joins with move at 4 (O at 4) - center
+      await blocXTacToe.connect(player2).joinGame(0, 4, { value: betAmount });
+      
+      // Create a draw: fill all cells without winner
+      // Avoid any winning patterns
+      await blocXTacToe.connect(player1).play(0, 1); // X at 1
+      await blocXTacToe.connect(player2).play(0, 3); // O at 3
+      await blocXTacToe.connect(player1).play(0, 5); // X at 5
+      await blocXTacToe.connect(player2).play(0, 2); // O at 2
+      await blocXTacToe.connect(player1).play(0, 6); // X at 6
+      await blocXTacToe.connect(player2).play(0, 7); // O at 7
+      await blocXTacToe.connect(player1).play(0, 8); // X at 8 - draw!
+      
+      const player1Data = await blocXTacToe.getPlayer(player1.address);
+      const player2Data = await blocXTacToe.getPlayer(player2.address);
+      
+      expect(player1Data.draws).to.equal(1n);
+      expect(player2Data.draws).to.equal(1n);
+    });
+
+    it("Should increment totalGames for both players on draw", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      const initialP1Games = (await blocXTacToe.getPlayer(player1.address)).totalGames;
+      const initialP2Games = (await blocXTacToe.getPlayer(player2.address)).totalGames;
+      
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 4, { value: betAmount });
+      
+      // Create draw - fill all cells without winner
+      await blocXTacToe.connect(player1).play(0, 1);
+      await blocXTacToe.connect(player2).play(0, 3);
+      await blocXTacToe.connect(player1).play(0, 5);
+      await blocXTacToe.connect(player2).play(0, 2);
+      await blocXTacToe.connect(player1).play(0, 6);
+      await blocXTacToe.connect(player2).play(0, 7);
+      await blocXTacToe.connect(player1).play(0, 8);
+      
+      const player1Data = await blocXTacToe.getPlayer(player1.address);
+      const player2Data = await blocXTacToe.getPlayer(player2.address);
+      
+      expect(player1Data.totalGames).to.equal(initialP1Games + 1n);
+      expect(player2Data.totalGames).to.equal(initialP2Games + 1n);
+    });
+
+    it("Should not change rating on draw", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      const initialP1Rating = (await blocXTacToe.getPlayer(player1.address)).rating;
+      const initialP2Rating = (await blocXTacToe.getPlayer(player2.address)).rating;
+      
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 4, { value: betAmount });
+      
+      // Create draw - fill all cells without winner
+      await blocXTacToe.connect(player1).play(0, 1);
+      await blocXTacToe.connect(player2).play(0, 3);
+      await blocXTacToe.connect(player1).play(0, 5);
+      await blocXTacToe.connect(player2).play(0, 2);
+      await blocXTacToe.connect(player1).play(0, 6);
+      await blocXTacToe.connect(player2).play(0, 7);
+      await blocXTacToe.connect(player1).play(0, 8);
+      
+      const player1Data = await blocXTacToe.getPlayer(player1.address);
+      const player2Data = await blocXTacToe.getPlayer(player2.address);
+      
+      expect(player1Data.rating).to.equal(initialP1Rating);
+      expect(player2Data.rating).to.equal(initialP2Rating);
+    });
+
+    it("Should not increment wins or losses on draw", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      const initialP1Wins = (await blocXTacToe.getPlayer(player1.address)).wins;
+      const initialP1Losses = (await blocXTacToe.getPlayer(player1.address)).losses;
+      const initialP2Wins = (await blocXTacToe.getPlayer(player2.address)).wins;
+      const initialP2Losses = (await blocXTacToe.getPlayer(player2.address)).losses;
+      
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 4, { value: betAmount });
+      
+      // Create draw - fill all cells without winner
+      await blocXTacToe.connect(player1).play(0, 1);
+      await blocXTacToe.connect(player2).play(0, 3);
+      await blocXTacToe.connect(player1).play(0, 5);
+      await blocXTacToe.connect(player2).play(0, 2);
+      await blocXTacToe.connect(player1).play(0, 6);
+      await blocXTacToe.connect(player2).play(0, 7);
+      await blocXTacToe.connect(player1).play(0, 8);
+      
+      const player1Data = await blocXTacToe.getPlayer(player1.address);
+      const player2Data = await blocXTacToe.getPlayer(player2.address);
+      
+      expect(player1Data.wins).to.equal(initialP1Wins);
+      expect(player1Data.losses).to.equal(initialP1Losses);
+      expect(player2Data.wins).to.equal(initialP2Wins);
+      expect(player2Data.losses).to.equal(initialP2Losses);
+    });
+
+    it("Should update stats correctly on multiple wins", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Player1 wins 3 games
+      for (let i = 0; i < 3; i++) {
+        await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+        await blocXTacToe.connect(player2).joinGame(i, 1, { value: betAmount });
+        await blocXTacToe.connect(player1).play(i, 3);
+        await blocXTacToe.connect(player2).play(i, 4);
+        await blocXTacToe.connect(player1).play(i, 6);
+      }
+      
+      const player1Data = await blocXTacToe.getPlayer(player1.address);
+      const player2Data = await blocXTacToe.getPlayer(player2.address);
+      
+      expect(player1Data.wins).to.equal(3n);
+      expect(player1Data.totalGames).to.equal(3n);
+      expect(player2Data.losses).to.equal(3n);
+      expect(player2Data.totalGames).to.equal(3n);
+    });
+
+    it("Should update stats correctly on multiple losses", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Player2 loses 3 games (player1 wins)
+      for (let i = 0; i < 3; i++) {
+        await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+        await blocXTacToe.connect(player2).joinGame(i, 1, { value: betAmount });
+        await blocXTacToe.connect(player1).play(i, 3);
+        await blocXTacToe.connect(player2).play(i, 4);
+        await blocXTacToe.connect(player1).play(i, 6);
+      }
+      
+      const player2Data = await blocXTacToe.getPlayer(player2.address);
+      
+      expect(player2Data.losses).to.equal(3n);
+      expect(player2Data.totalGames).to.equal(3n);
+      expect(player2Data.wins).to.equal(0n);
+    });
+  });
 });
 
