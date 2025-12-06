@@ -477,5 +477,229 @@ describe("BlOcXTacToe - Claim Reward & Challenge System Tests (T3)", function ()
       expect(tokenName).to.equal("ETH"); // Set in constructor
     });
   });
+
+  // ============ TEST 6: Leaderboard - getLeaderboard() ============
+  
+  describe("Leaderboard - getLeaderboard()", function () {
+    async function setupPlayersFixture() {
+      const { blocXTacToe, owner, player1, player2, player3 } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      await blocXTacToe.connect(player3).registerPlayer("player3");
+      
+      return { blocXTacToe, owner, player1, player2, player3 };
+    }
+
+    it("Should return empty array if no players", async function () {
+      const { blocXTacToe } = await loadFixture(deployBlOcXTacToeFixture);
+      
+      const leaderboard = await blocXTacToe.getLeaderboard(10);
+      expect(leaderboard.length).to.equal(0);
+    });
+
+    it("Should return top players by rating", async function () {
+      const { blocXTacToe, player1, player2, player3 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Create and play games to update ratings - only winners get on leaderboard
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
+      
+      // Player1 wins (0, 3, 6) - rating increases
+      await blocXTacToe.connect(player1).play(0, 3);
+      await blocXTacToe.connect(player2).play(0, 4);
+      await blocXTacToe.connect(player1).play(0, 6);
+      
+      let leaderboard = await blocXTacToe.getLeaderboard(10);
+      expect(leaderboard.length).to.equal(1); // Only winner (player1) is on leaderboard
+      expect(leaderboard[0].player).to.equal(player1.address);
+      expect(leaderboard[0].rating).to.be.gte(100n); // Should be >= starting rating
+      
+      // Player3 wins another game - should be added
+      await blocXTacToe.connect(player3).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(1, 1, { value: betAmount });
+      await blocXTacToe.connect(player3).play(1, 3);
+      await blocXTacToe.connect(player2).play(1, 4);
+      await blocXTacToe.connect(player3).play(1, 6);
+      
+      leaderboard = await blocXTacToe.getLeaderboard(10);
+      expect(leaderboard.length).to.equal(2); // Now both winners are on leaderboard
+    });
+
+    it("Should respect limit parameter", async function () {
+      const { blocXTacToe, player1, player2, player3 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Create games so all players get on leaderboard
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
+      await blocXTacToe.connect(player1).play(0, 3);
+      await blocXTacToe.connect(player2).play(0, 4);
+      await blocXTacToe.connect(player1).play(0, 6);
+      
+      // Player3 creates a game alone (will wait for joiner)
+      await blocXTacToe.connect(player3).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      // Player2 joins
+      await blocXTacToe.connect(player2).joinGame(1, 1, { value: betAmount });
+      await blocXTacToe.connect(player3).play(1, 3);
+      await blocXTacToe.connect(player2).play(1, 4);
+      await blocXTacToe.connect(player3).play(1, 6);
+      
+      // Request only 1 entry
+      const leaderboard = await blocXTacToe.getLeaderboard(1);
+      expect(leaderboard.length).to.equal(1);
+      
+      // Request 2 entries
+      const leaderboard2 = await blocXTacToe.getLeaderboard(2);
+      expect(leaderboard2.length).to.equal(2);
+    });
+
+    it("Should update when player wins", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Initial leaderboard should be empty (no wins yet)
+      let leaderboard = await blocXTacToe.getLeaderboard(10);
+      expect(leaderboard.length).to.equal(0);
+      
+      // Create game and player1 wins
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
+      await blocXTacToe.connect(player1).play(0, 3);
+      await blocXTacToe.connect(player2).play(0, 4);
+      await blocXTacToe.connect(player1).play(0, 6);
+      
+      // Leaderboard should now have player1 (winner only, not loser)
+      leaderboard = await blocXTacToe.getLeaderboard(10);
+      expect(leaderboard.length).to.equal(1);
+      expect(leaderboard[0].player).to.equal(player1.address);
+    });
+
+    it("Should sort correctly by rating", async function () {
+      const { blocXTacToe, owner, player1, player2, player3 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Set lower K factor to control rating changes
+      await blocXTacToe.connect(owner).addAdmin(owner.address);
+      await blocXTacToe.connect(owner).setKFactor(50);
+      
+      // Player1 wins first game (higher rating)
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
+      await blocXTacToe.connect(player1).play(0, 3);
+      await blocXTacToe.connect(player2).play(0, 4);
+      await blocXTacToe.connect(player1).play(0, 6);
+      
+      // Player3 wins second game
+      await blocXTacToe.connect(player3).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(1, 1, { value: betAmount });
+      await blocXTacToe.connect(player3).play(1, 3);
+      await blocXTacToe.connect(player2).play(1, 4);
+      await blocXTacToe.connect(player3).play(1, 6);
+      
+      const leaderboard = await blocXTacToe.getLeaderboard(10);
+      
+      // Should be sorted by rating descending
+      for (let i = 0; i < leaderboard.length - 1; i++) {
+        expect(leaderboard[i].rating).to.be.gte(leaderboard[i + 1].rating);
+      }
+      
+      // Top two should be player1 and player3 (winners) with similar ratings
+      expect(leaderboard[0].player === player1.address || leaderboard[0].player === player3.address).to.be.true;
+      expect(leaderboard[1].player === player1.address || leaderboard[1].player === player3.address).to.be.true;
+    });
+
+    it("Should update existing player entry", async function () {
+      const { blocXTacToe, owner, player1, player2 } = await loadFixture(setupPlayersFixture);
+      
+      // Set K factor to ensure rating changes
+      await blocXTacToe.connect(owner).addAdmin(owner.address);
+      await blocXTacToe.connect(owner).setKFactor(100);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Player1 wins first game
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
+      await blocXTacToe.connect(player1).play(0, 3);
+      await blocXTacToe.connect(player2).play(0, 4);
+      await blocXTacToe.connect(player1).play(0, 6);
+      
+      let leaderboard = await blocXTacToe.getLeaderboard(10);
+      const initialRating = leaderboard.find(e => e.player === player1.address)!.rating;
+      const initialWins = leaderboard.find(e => e.player === player1.address)!.wins;
+      
+      // Player1 wins second game - rating should update
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(1, 1, { value: betAmount });
+      await blocXTacToe.connect(player1).play(1, 3);
+      await blocXTacToe.connect(player2).play(1, 4);
+      await blocXTacToe.connect(player1).play(1, 6);
+      
+      leaderboard = await blocXTacToe.getLeaderboard(10);
+      const updatedEntry = leaderboard.find(e => e.player === player1.address);
+      
+      expect(updatedEntry).to.not.be.undefined;
+      expect(updatedEntry!.wins).to.equal(initialWins + 1n);
+      // Rating may not increase if player2's rating is too low after first loss
+      // But wins should definitely increase
+    });
+
+    it("Should insert new player at correct position", async function () {
+      const { blocXTacToe, owner, player1, player2, player3 } = await loadFixture(setupPlayersFixture);
+      
+      const betAmount = ethers.parseEther("0.01");
+      
+      // Set lower K factor for more predictable ratings
+      await blocXTacToe.connect(owner).addAdmin(owner.address);
+      await blocXTacToe.connect(owner).setKFactor(50);
+      
+      // Player1 wins (gets on leaderboard)
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 1, { value: betAmount });
+      await blocXTacToe.connect(player1).play(0, 3);
+      await blocXTacToe.connect(player2).play(0, 4);
+      await blocXTacToe.connect(player1).play(0, 6);
+      
+      let leaderboard = await blocXTacToe.getLeaderboard(10);
+      expect(leaderboard.length).to.equal(1); // Only player1 (winner)
+      
+      // Player3 wins (should be inserted at correct position)
+      await blocXTacToe.connect(player3).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(1, 1, { value: betAmount });
+      await blocXTacToe.connect(player3).play(1, 3);
+      await blocXTacToe.connect(player2).play(1, 4);
+      await blocXTacToe.connect(player3).play(1, 6);
+      
+      leaderboard = await blocXTacToe.getLeaderboard(10);
+      expect(leaderboard.length).to.equal(2); // Both winners (player1 and player3)
+      
+      // Should still be sorted
+      for (let i = 0; i < leaderboard.length - 1; i++) {
+        expect(leaderboard[i].rating).to.be.gte(leaderboard[i + 1].rating);
+      }
+      
+      // Player3 should be in the leaderboard
+      const player3Entry = leaderboard.find(e => e.player === player3.address);
+      expect(player3Entry).to.not.be.undefined;
+    });
+
+    it("Should handle leaderboard size limit (100)", async function () {
+      const { blocXTacToe } = await loadFixture(deployBlOcXTacToeFixture);
+      
+      // Verify LEADERBOARD_SIZE constant
+      const leaderboardSize = await blocXTacToe.LEADERBOARD_SIZE();
+      expect(leaderboardSize).to.equal(100);
+      
+      // Request more than the limit - should return up to actual length
+      const leaderboard = await blocXTacToe.getLeaderboard(200);
+      // Even if we request 200, it should only return what exists (and max 100 due to contract limit)
+      expect(leaderboard.length).to.be.lte(100);
+    });
+  });
 });
 
