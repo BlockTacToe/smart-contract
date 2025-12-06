@@ -439,5 +439,43 @@ describe("BlOcXTacToe - Claim Reward & Challenge System Tests (T3)", function ()
       expect(player2Challenges).to.include(1n);
     });
   });
+
+  // ============ TEST 5: Token Management - getTokenName() ============
+  
+  describe("Token Management - getTokenName()", function () {
+    async function setupTokenFixture() {
+      const { blocXTacToe, owner, erc20Mock, erc20Address } = await loadFixture(deployBlOcXTacToeFixture);
+      
+      // Set up ERC20 token support
+      await blocXTacToe.connect(owner).addAdmin(owner.address);
+      await blocXTacToe.connect(owner).setSupportedToken(erc20Address, true, "TEST");
+      
+      return { blocXTacToe, owner, erc20Address };
+    }
+
+    it("Should return token name for supported token", async function () {
+      const { blocXTacToe, erc20Address } = await loadFixture(setupTokenFixture);
+      
+      const tokenName = await blocXTacToe.getTokenName(erc20Address);
+      expect(tokenName).to.equal("TEST");
+    });
+
+    it("Should return empty string for unsupported token", async function () {
+      const { blocXTacToe } = await loadFixture(deployBlOcXTacToeFixture);
+      
+      // Use an unsupported token address
+      const unsupportedToken = (await ethers.getSigners())[10].address;
+      
+      const tokenName = await blocXTacToe.getTokenName(unsupportedToken);
+      expect(tokenName).to.equal("");
+    });
+
+    it("Should return 'ETH' for zero address", async function () {
+      const { blocXTacToe } = await loadFixture(deployBlOcXTacToeFixture);
+      
+      const tokenName = await blocXTacToe.getTokenName(ethers.ZeroAddress);
+      expect(tokenName).to.equal("ETH"); // Set in constructor
+    });
+  });
 });
 
