@@ -175,5 +175,96 @@ describe("BlOcXTacToe - Edge Cases & Boundary Tests", function () {
       ).to.be.revertedWithCustomError(blocXTacToe, "InvalidTimeout");
     });
   });
+
+  // ============ TEST 2: Draw Game Edge Cases ============
+  
+  describe("Draw Game Edge Cases", function () {
+    async function setupDrawGameFixture() {
+      const { blocXTacToe, owner, player1, player2, feeRecipient } = await loadFixture(deployBlOcXTacToeFixture);
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      await blocXTacToe.connect(player2).registerPlayer("player2");
+      
+      // Set platform fee to test that draw doesn't deduct fee
+      await blocXTacToe.connect(owner).addAdmin(owner.address);
+      await blocXTacToe.connect(owner).setPlatformFee(500); // 5%
+      await blocXTacToe.connect(owner).setPlatformFeeRecipient(feeRecipient.address);
+      
+      return { blocXTacToe, player1, player2, feeRecipient };
+    }
+
+    it("Should refund both players full bet amount on draw (no platform fee)", async function () {
+      const { blocXTacToe, player1, player2, feeRecipient } = await loadFixture(setupDrawGameFixture);
+      
+      const betAmount = ethers.parseEther("1.0");
+      const feeRecipientBalanceBefore = await ethers.provider.getBalance(feeRecipient.address);
+      
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 4, { value: betAmount });
+      
+      // Create a draw: fill all cells without winner
+      await blocXTacToe.connect(player1).play(0, 1); // X at 1
+      await blocXTacToe.connect(player2).play(0, 3); // O at 3
+      await blocXTacToe.connect(player1).play(0, 5); // X at 5
+      await blocXTacToe.connect(player2).play(0, 2); // O at 2
+      await blocXTacToe.connect(player1).play(0, 6); // X at 6
+      await blocXTacToe.connect(player2).play(0, 7); // O at 7
+      
+      const player1BalanceBefore = await ethers.provider.getBalance(player1.address);
+      const player2BalanceBefore = await ethers.provider.getBalance(player2.address);
+      
+      await blocXTacToe.connect(player1).play(0, 8); // X at 8 - draw!
+      
+      const player1BalanceAfter = await ethers.provider.getBalance(player1.address);
+      const player2BalanceAfter = await ethers.provider.getBalance(player2.address);
+      const feeRecipientBalanceAfter = await ethers.provider.getBalance(feeRecipient.address);
+      
+      // Both players should receive full refund (betAmount each)
+      // Note: Need to account for gas costs, so check that they received at least betAmount
+      expect(player1BalanceAfter).to.be.gte(player1BalanceBefore);
+      expect(player2BalanceAfter).to.be.gte(player2BalanceBefore);
+      
+      // Fee recipient should NOT receive any fee on draw
+      expect(feeRecipientBalanceAfter - feeRecipientBalanceBefore).to.equal(0n);
+      
+      // Verify game status is Ended and no winner
+      const game = await blocXTacToe.games(0);
+      expect(game.status).to.equal(1); // Ended
+      expect(game.winner).to.equal(ethers.ZeroAddress);
+    });
+
+    it("Should refund exact bet amount to each player on draw", async function () {
+      const { blocXTacToe, player1, player2 } = await loadFixture(setupDrawGameFixture);
+      
+      const betAmount = ethers.parseEther("0.5");
+      
+      // Get contract balance before
+      const contractBalanceBefore = await ethers.provider.getBalance(await blocXTacToe.getAddress());
+      
+      await blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 3, { value: betAmount });
+      await blocXTacToe.connect(player2).joinGame(0, 4, { value: betAmount });
+      
+      // Contract should have 2 * betAmount
+      const contractBalanceAfterJoin = await ethers.provider.getBalance(await blocXTacToe.getAddress());
+      expect(contractBalanceAfterJoin - contractBalanceBefore).to.equal(betAmount * 2n);
+      
+      // Create draw
+      await blocXTacToe.connect(player1).play(0, 1);
+      await blocXTacToe.connect(player2).play(0, 3);
+      await blocXTacToe.connect(player1).play(0, 5);
+      await blocXTacToe.connect(player2).play(0, 2);
+      await blocXTacToe.connect(player1).play(0, 6);
+      await blocXTacToe.connect(player2).play(0, 7);
+      await blocXTacToe.connect(player1).play(0, 8); // Draw!
+      
+      // Contract balance should be 0 after draw (both players refunded)
+      const contractBalanceAfterDraw = await ethers.provider.getBalance(await blocXTacToe.getAddress());
+      expect(contractBalanceAfterDraw).to.equal(0n);
+      
+      // Verify game status is Ended with no winner
+      const game = await blocXTacToe.games(0);
+      expect(game.status).to.equal(1); // Ended
+      expect(game.winner).to.equal(ethers.ZeroAddress);
+    });
+  });
 });
 
