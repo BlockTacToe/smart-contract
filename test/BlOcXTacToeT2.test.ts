@@ -275,5 +275,97 @@ describe("BlOcXTacToe - Additional Test Coverage (T2)", function () {
     });
   });
 
+  // ============ TEST 4: Game Functions - createGame() Edge Cases ============
+
+  describe("Game Functions - createGame() Edge Cases", function () {
+    it("Should allow creating game with 5x5 board", async function () {
+      const { blocXTacToe, player1 } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      const betAmount = ethers.parseEther("0.01");
+
+      await expect(blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 5, { value: betAmount }))
+        .to.emit(blocXTacToe, "GameCreated");
+
+      const game = await blocXTacToe.getGame(0);
+      expect(game.boardSize).to.equal(5);
+    });
+
+    it("Should allow creating game with 7x7 board", async function () {
+      const { blocXTacToe, player1 } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      const betAmount = ethers.parseEther("0.01");
+
+      await expect(blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 7, { value: betAmount }))
+        .to.emit(blocXTacToe, "GameCreated");
+
+      const game = await blocXTacToe.getGame(0);
+      expect(game.boardSize).to.equal(7);
+    });
+
+    it("Should revert if board size is not 3, 5, or 7", async function () {
+      const { blocXTacToe, player1 } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      const betAmount = ethers.parseEther("0.01");
+
+      // Test invalid board sizes
+      await expect(
+        blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 2, { value: betAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "InvalidSize");
+
+      await expect(
+        blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 4, { value: betAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "InvalidSize");
+
+      await expect(
+        blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 6, { value: betAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "InvalidSize");
+
+      await expect(
+        blocXTacToe.connect(player1).createGame(betAmount, 0, ethers.ZeroAddress, 8, { value: betAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "InvalidSize");
+    });
+
+    it("Should revert if token is not supported", async function () {
+      const { blocXTacToe, player1 } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      const betAmount = ethers.parseEther("0.01");
+
+      // Use a random address as unsupported token
+      const unsupportedToken = ethers.Wallet.createRandom().address;
+
+      await expect(
+        blocXTacToe.connect(player1).createGame(betAmount, 0, unsupportedToken, 3, { value: 0 })
+      ).to.be.revertedWithCustomError(blocXTacToe, "TokenNotSup");
+    });
+
+    it("Should validate move index for 5x5 board (max 24)", async function () {
+      const { blocXTacToe, player1 } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      const betAmount = ethers.parseEther("0.01");
+
+      // 5x5 board has 25 cells (0-24), so 25 should be invalid
+      await expect(
+        blocXTacToe.connect(player1).createGame(betAmount, 25, ethers.ZeroAddress, 5, { value: betAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "InvalidMove");
+    });
+
+    it("Should validate move index for 7x7 board (max 48)", async function () {
+      const { blocXTacToe, player1 } = await loadFixture(deployBlOcXTacToeFixture);
+
+      await blocXTacToe.connect(player1).registerPlayer("player1");
+      const betAmount = ethers.parseEther("0.01");
+
+      // 7x7 board has 49 cells (0-48), so 49 should be invalid
+      await expect(
+        blocXTacToe.connect(player1).createGame(betAmount, 49, ethers.ZeroAddress, 7, { value: betAmount })
+      ).to.be.revertedWithCustomError(blocXTacToe, "InvalidMove");
+    });
+  });
+
 });
 
